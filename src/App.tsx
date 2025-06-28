@@ -4,6 +4,7 @@ import { GraphView } from './components/GraphView'
 import { EmailStatus } from './components/EmailStatus'
 import { EmailSetupInstructions } from './components/EmailSetupInstructions'
 import { EmailTestButton } from './utils/emailTestButton'
+import { WalletAuth } from './components/WalletAuth'
 import { fetchNetworkProfiles, updateNetworkProfile, updateGroupOrder } from './config/supabase'
 import type { Database } from './config/supabase'
 import { supabase } from './config/supabase'
@@ -97,6 +98,11 @@ function App() {
   const [activeGroupView, setActiveGroupView] = useState<'groups' | 'subs' | 'subs2' | 'links'>('groups')
   const [showLinksModal, setShowLinksModal] = useState(false)
   const [collapsedNoteGroups, setCollapsedNoteGroups] = useState<Set<string>>(new Set())
+  
+  // Wallet authentication state
+  const [isAuthenticated, setIsAuthenticated] = useState(false)
+  const [connectedWalletAddress, setConnectedWalletAddress] = useState<string | null>(null)
+  const [currentUserProfile, setCurrentUserProfile] = useState<any>(null)
 
   const year = calendarDate.getFullYear()
   const month = calendarDate.getMonth()
@@ -924,6 +930,24 @@ function App() {
     // The GraphView component will handle loading the positions on profile change
   }
 
+  // Wallet authentication handlers
+  const handleAuthChange = (authenticated: boolean, address: string | null) => {
+    setIsAuthenticated(authenticated)
+    setConnectedWalletAddress(address)
+  }
+
+  const handleWalletProfileLoad = (profileId: number) => {
+    setActiveProfile(profileId as 1 | 2 | 3)
+    const profile = networkProfiles.find(p => p.id === profileId)
+    setCurrentUserProfile(profile)
+  }
+
+  const canEditProfile = () => {
+    if (!isAuthenticated || !connectedWalletAddress) return false
+    const currentProfile = getProfile(activeProfile)
+    return currentProfile?.wallet_address === connectedWalletAddress
+  }
+
   useEffect(() => {
     if (!noteGroupsLoading && noteGroups.length === 0) {
       createNoteGroup('General', '#3b82f6')
@@ -1242,6 +1266,15 @@ function App() {
         <h1>Web Organization Planner</h1>
       </header>
       
+      {/* Wallet Authentication */}
+      <div style={{ padding: '16px', maxWidth: '1200px', margin: '0 auto' }}>
+        <WalletAuth 
+          onProfileLoad={handleWalletProfileLoad}
+          currentProfile={getProfile(activeProfile)}
+          onAuthChange={handleAuthChange}
+        />
+      </div>
+      
       <main className="app-main">
         <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', alignItems: 'flex-start' }}>
           <section className="notes-section" style={{
@@ -1280,12 +1313,29 @@ function App() {
                 gap: '8px',
                 marginBottom: '8px'
               }}>
-              <button className="add-link-button" onClick={() => setIsAddingNote(true)}>
+              <button 
+                className="add-link-button" 
+                onClick={() => setIsAddingNote(true)}
+                disabled={!canEditProfile()}
+                style={{
+                  opacity: canEditProfile() ? 1 : 0.5,
+                  cursor: canEditProfile() ? 'pointer' : 'not-allowed',
+                  pointerEvents: canEditProfile() ? 'auto' : 'none'
+                }}
+                title={!canEditProfile() ? "Connect your wallet to edit" : ""}
+              >
                 + Add Note
               </button>
                 <button 
                   className="add-link-button"
                   onClick={() => setIsAddingNoteGroup(true)}
+                  disabled={!canEditProfile()}
+                  style={{
+                    opacity: canEditProfile() ? 1 : 0.5,
+                    cursor: canEditProfile() ? 'pointer' : 'not-allowed',
+                    pointerEvents: canEditProfile() ? 'auto' : 'none'
+                  }}
+                  title={!canEditProfile() ? "Connect your wallet to edit" : ""}
                 >
                   + Add Note Group
                 </button>
@@ -1870,6 +1920,13 @@ function App() {
                         setNewGroup({ name: '', color: '#3b82f6', parent_group_id: '' })
                         setIsAddingGroup(true)
                       }}
+                      disabled={!canEditProfile()}
+                      style={{
+                        opacity: canEditProfile() ? 1 : 0.5,
+                        cursor: canEditProfile() ? 'pointer' : 'not-allowed',
+                        pointerEvents: canEditProfile() ? 'auto' : 'none'
+                      }}
+                      title={!canEditProfile() ? "Connect your wallet to edit" : ""}
                     >
                       + Add New Group
                     </button>
@@ -1880,8 +1937,13 @@ function App() {
                         setIsAddingGroup(true)
                         setIsAddingSubgroup(true)
                       }}
-                      disabled={groups.filter(g => !g.parent_group_id).length === 0}
-                      title={groups.filter(g => !g.parent_group_id).length === 0 ? "Create a top-level group first" : "Add subgroup to existing group"}
+                      disabled={!canEditProfile() || groups.filter(g => !g.parent_group_id).length === 0}
+                      style={{
+                        opacity: (canEditProfile() && groups.filter(g => !g.parent_group_id).length > 0) ? 1 : 0.5,
+                        cursor: (canEditProfile() && groups.filter(g => !g.parent_group_id).length > 0) ? 'pointer' : 'not-allowed',
+                        pointerEvents: (canEditProfile() && groups.filter(g => !g.parent_group_id).length > 0) ? 'auto' : 'none'
+                      }}
+                      title={!canEditProfile() ? "Connect your wallet to edit" : groups.filter(g => !g.parent_group_id).length === 0 ? "Create a top-level group first" : "Add subgroup to existing group"}
                     >
                       + Sub
                     </button>
@@ -1899,8 +1961,13 @@ function App() {
                           setIsAddingGroup(true)
                           setIsAddingSubgroup(true)
                         }}
-                        disabled={getGroupsByLevel(1).length === 0}
-                        title={getGroupsByLevel(1).length === 0 ? "Create a Sub group first" : "Add Sub2 under existing Sub group"}
+                        disabled={!canEditProfile() || getGroupsByLevel(1).length === 0}
+                        style={{
+                          opacity: (canEditProfile() && getGroupsByLevel(1).length > 0) ? 1 : 0.5,
+                          cursor: (canEditProfile() && getGroupsByLevel(1).length > 0) ? 'pointer' : 'not-allowed',
+                          pointerEvents: (canEditProfile() && getGroupsByLevel(1).length > 0) ? 'auto' : 'none'
+                        }}
+                        title={!canEditProfile() ? "Connect your wallet to edit" : getGroupsByLevel(1).length === 0 ? "Create a Sub group first" : "Add Sub2 under existing Sub group"}
                       >
                         + Sub2
                       </button>
@@ -2036,6 +2103,13 @@ function App() {
                 <button 
                   className="add-link-button"
                   onClick={() => setIsAddingLink(true)}
+                  disabled={!canEditProfile()}
+                  style={{
+                    opacity: canEditProfile() ? 1 : 0.5,
+                    cursor: canEditProfile() ? 'pointer' : 'not-allowed',
+                    pointerEvents: canEditProfile() ? 'auto' : 'none'
+                  }}
+                  title={!canEditProfile() ? "Connect your wallet to edit" : ""}
                 >
                   + Add New Link
                 </button>

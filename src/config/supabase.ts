@@ -138,6 +138,7 @@ export type Database = {
           id: number
           name: string
           positions: any
+          wallet_address: string | null
           created_at: string
           updated_at: string
         }
@@ -145,6 +146,7 @@ export type Database = {
           id?: number
           name: string
           positions: any
+          wallet_address?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -152,6 +154,7 @@ export type Database = {
           id?: number
           name?: string
           positions?: any
+          wallet_address?: string | null
           created_at?: string
           updated_at?: string
         }
