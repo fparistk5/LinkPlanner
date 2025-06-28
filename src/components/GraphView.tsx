@@ -15,8 +15,9 @@ interface GraphViewProps {
   onGroupNodeClick?: (groupId: string) => void
   onSavePositions?: (positions: { [key: string]: { x: number; y: number } }) => Promise<void>
   titleFontSize?: number
-  activeProfile?: 1 | 2 | 3
+  activeProfile?: number
   profilePositions?: { [key: string]: { x: number; y: number } }
+  canEdit?: boolean
 }
 
 interface GraphNode extends d3.SimulationNodeDatum {
@@ -35,7 +36,7 @@ interface GraphLink extends d3.SimulationLinkDatum<GraphNode> {
   target: GraphNode
 }
 
-export function GraphView({ links, networkConnections, groups = [], notes = [], emailAlerts = [], onAddConnection, onDeleteConnection, onNoteNodeClick, onLinkNodeClick, onGroupNodeClick, onSavePositions, titleFontSize = 12, activeProfile = 1, profilePositions = {} }: GraphViewProps) {
+export function GraphView({ links, networkConnections, groups = [], notes = [], emailAlerts = [], onAddConnection, onDeleteConnection, onNoteNodeClick, onLinkNodeClick, onGroupNodeClick, onSavePositions, titleFontSize = 12, activeProfile = 1, profilePositions = {}, canEdit = false }: GraphViewProps) {
   const svgRef = useRef<SVGSVGElement>(null)
   const simulationRef = useRef<d3.Simulation<GraphNode, undefined> | null>(null)
   const [selectedNote, setSelectedNote] = useState<any | null>(null)
@@ -915,28 +916,41 @@ export function GraphView({ links, networkConnections, groups = [], notes = [], 
     const saveButton = svg.append('g')
       .attr('class', 'save-button')
       .attr('transform', `translate(${width - 100}, 20)`)
-      .style('cursor', 'pointer')
-      .on('click', handleSavePositions)
+      .style('cursor', canEdit ? 'pointer' : 'not-allowed')
+      .style('opacity', canEdit ? 1 : 0.5)
+      .on('click', () => {
+        if (canEdit) {
+          handleSavePositions()
+        } else {
+          console.log('🚫 Save blocked: NFT ownership required')
+        }
+      })
 
     saveButton.append('rect')
       .attr('width', 80)
       .attr('height', 30)
       .attr('rx', 5)
-      .attr('fill', saveAnimation ? '#10b981' : '#3b82f6')
+      .attr('fill', canEdit ? (saveAnimation ? '#10b981' : '#3b82f6') : '#94a3b8')
       .attr('opacity', 0.9)
       .transition()
       .duration(300)
-      .attr('fill', saveAnimation ? '#10b981' : '#3b82f6')
+      .attr('fill', canEdit ? (saveAnimation ? '#10b981' : '#3b82f6') : '#94a3b8')
 
     saveButton.append('text')
       .attr('x', 40)
       .attr('y', 20)
       .attr('text-anchor', 'middle')
       .attr('fill', 'white')
-      .text(saveAnimation ? 'Saved!' : (isSaving ? 'Saving...' : 'Save Map'))
+      .text(canEdit 
+        ? (saveAnimation ? 'Saved!' : (isSaving ? 'Saving...' : 'Save Map'))
+        : 'NFT Required'
+      )
       .transition()
       .duration(300)
-      .text(saveAnimation ? 'Saved!' : (isSaving ? 'Saving...' : 'Save Map'))
+      .text(canEdit 
+        ? (saveAnimation ? 'Saved!' : (isSaving ? 'Saving...' : 'Save Map'))
+        : 'NFT Required'
+      )
 
     return () => {
       clearInterval(alphaInterval)
@@ -947,7 +961,7 @@ export function GraphView({ links, networkConnections, groups = [], notes = [], 
       }
       d3.select(svgRef.current).select('.save-button').remove()
     }
-  }, [links, groups, networkConnections, notes, emailAlerts, isSaving, activeProfile, profilePositions])
+  }, [links, groups, networkConnections, notes, emailAlerts, isSaving, activeProfile, profilePositions, canEdit, saveAnimation])
 
   React.useEffect(() => { setCustomTooltipPos(null) }, [selectedNote])
 

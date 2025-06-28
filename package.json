@@ -9,7 +9,8 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "create-tables": "tsx src/scripts/createTables.ts",
-    "seed-data": "tsx src/scripts/seedData.ts"
+    "seed-data": "tsx src/scripts/seedData.ts",
+    "migrate-wallet": "tsx src/scripts/runMigration.ts"
   },
   "dependencies": {
     "@emailjs/browser": "^4.4.1",

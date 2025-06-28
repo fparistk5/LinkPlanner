@@ -5,7 +5,8 @@ import { EmailStatus } from './components/EmailStatus'
 import { EmailSetupInstructions } from './components/EmailSetupInstructions'
 import { EmailTestButton } from './utils/emailTestButton'
 import { WalletAuth } from './components/WalletAuth'
-import { fetchNetworkProfiles, updateNetworkProfile, updateGroupOrder } from './config/supabase'
+import { ProfileSelector, NFTProfileSelector, GeneralProfileSelector, SavedProfileSelector } from './components/ProfileSelector'
+import { fetchNetworkProfiles, updateNetworkProfile, updateGroupOrder, fetchNetworkProfilesByWallet, fetchAllUserProfilesForWallet, fetchGeneralProfilesByWallet } from './config/supabase'
 import type { Database } from './config/supabase'
 import { supabase } from './config/supabase'
 
@@ -78,8 +79,10 @@ function App() {
   const [selectedLink, setSelectedLink] = useState<Link | null>(null)
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null)
   const [titleFontSize, setTitleFontSize] = useState(12)
-  const [activeProfile, setActiveProfile] = useState<1 | 2 | 3>(1)
+  const [activeProfile, setActiveProfile] = useState<number | null>(null)
   const [networkProfiles, setNetworkProfiles] = useState<any[]>([])
+  const [currentUserProfile, setCurrentUserProfile] = useState<any>(null)
+  const [ownedNFTs, setOwnedNFTs] = useState<{ id: string; name: string }[]>([])
   const [editingProfile, setEditingProfile] = useState<number | null>(null)
   const [profileNameEdits, setProfileNameEdits] = useState<{ [key: number]: string }>({})
   const [profileSaveLoading, setProfileSaveLoading] = useState<{ [key: number]: boolean }>({})
@@ -102,7 +105,7 @@ function App() {
   // Wallet authentication state
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [connectedWalletAddress, setConnectedWalletAddress] = useState<string | null>(null)
-  const [currentUserProfile, setCurrentUserProfile] = useState<any>(null)
+  const [hasNFTs, setHasNFTs] = useState(false)
 
   const year = calendarDate.getFullYear()
   const month = calendarDate.getMonth()
@@ -118,24 +121,41 @@ function App() {
 
   const handleAddLink = async (e: React.FormEvent) => {
     e.preventDefault()
+    
+    // 🔐 SECURITY CHECK: Must have NFT ownership to add links
+    if (!canEditProfile()) {
+      console.log('🚫 Add link blocked: No NFT ownership')
+      alert('⚠️ You need to own a qualifying NFT to add links.')
+      return
+    }
+    
     if (newLink.title && newLink.url) {
       try {
         await addLink(newLink.title, newLink.url, newLink.group_id || null, newLink.note_group_id || null, newLink.color || '#3b82f6')
         setNewLink({ title: '', url: '', group_id: '', note_group_id: '', color: '#3b82f6' })
         setIsAddingLink(false)
+        console.log('✅ Link added successfully')
       } catch (err) {
         console.error('Error adding link:', err)
-        // You might want to show an error message to the user here
+        alert('Failed to add link')
       }
     }
   }
 
   const handleDeleteLink = async (id: string) => {
+    // 🔐 SECURITY CHECK: Must have NFT ownership to delete links
+    if (!canEditProfile()) {
+      console.log('🚫 Delete link blocked: No NFT ownership')
+      alert('⚠️ You need to own a qualifying NFT to delete links.')
+      return
+    }
+    
     try {
       await deleteLink(id)
+      console.log('✅ Link deleted successfully')
     } catch (err) {
       console.error('Error deleting link:', err)
-      // You might want to show an error message to the user here
+      alert('Failed to delete link')
     }
   }
 
@@ -175,17 +195,14 @@ function App() {
 
     if (!draggedLink) return
 
-    try {
-      // Update the link's group in the database
-      await updateLink(draggedLink.id, { group_id: targetGroupId })
+    // 🔐 SECURITY CHECK: Use secure update function
+    const success = await secureUpdateLink(draggedLink.id, { group_id: targetGroupId })
+    if (success) {
       // Only update the UI after the save is successful
       const updatedLink = { ...draggedLink, group_id: targetGroupId }
       setLinks((prev: Link[]) => prev.map((link: Link) => 
         link.id === draggedLink.id ? updatedLink : link
       ))
-    } catch (error) {
-      console.error('Error updating link group:', error)
-      // Optionally show an error message to the user
     }
   }
 
@@ -383,12 +400,12 @@ function App() {
         <form
           onSubmit={async e => {
             e.preventDefault()
-            await editNote(note.id, {
-              ...editNoteValue,
-              note_group_id: editNoteValue.note_group_id === '' ? null : editNoteValue.note_group_id,
-              group_id: editNoteValue.group_id === '' ? null : editNoteValue.group_id,
-              link_id: editNoteValue.link_id === '' ? null : editNoteValue.link_id
-            })
+                                    await secureEditNote(note.id, {
+                          ...editNoteValue,
+                          note_group_id: editNoteValue.note_group_id === '' ? null : editNoteValue.note_group_id,
+                          group_id: editNoteValue.group_id === '' ? null : editNoteValue.group_id,
+                          link_id: editNoteValue.link_id === '' ? null : editNoteValue.link_id
+                        })
             await reloadNotes()
             setEditingNote(null)
           }}
@@ -468,7 +485,7 @@ function App() {
               setEditingNote(note)
               setEditNoteValue({ title: note.title, description: note.description, note_group_id: note.note_group_id || '', group_id: note.group_id || '', link_id: note.link_id || '' })
             }}>Edit</button>
-            <button className="button cancel-button" style={{ fontSize: 12 }} onClick={() => removeNote(note.id)}>Delete</button>
+                                    <button className="button cancel-button" style={{ fontSize: 12 }} onClick={() => secureRemoveNote(note.id)}>Delete</button>
           </div>
         </>
       )}
@@ -541,7 +558,7 @@ function App() {
                   <select
                     value={group.note_group_id || ''}
                     onChange={async (e) => {
-                      await updateGroup(group.id, { note_group_id: e.target.value === '' ? null : e.target.value })
+                                                await secureUpdateGroup(group.id, { note_group_id: e.target.value === '' ? null : e.target.value })
                     }}
                     className="edit-input"
                     style={{ width: '100%' }}
@@ -554,7 +571,7 @@ function App() {
                                       <select
                       value={group.parent_group_id || ''}
                       onChange={async (e) => {
-                        await updateGroup(group.id, { parent_group_id: e.target.value === '' ? null : e.target.value })
+                                                  await secureUpdateGroup(group.id, { parent_group_id: e.target.value === '' ? null : e.target.value })
                       }}
                       className="edit-input"
                       style={{ width: '100%' }}
@@ -586,7 +603,7 @@ function App() {
                     <button onClick={handleCancelEdit} className="cancel-button">Cancel</button>
                     <button 
                       onClick={async () => {
-                        await deleteGroup(group.id)
+                                                  await secureDeleteGroup(group.id)
                         setEditingGroup(null)
                         setTempEditValue('')
                       }} 
@@ -607,7 +624,7 @@ function App() {
                     value={group.color}
                     onChange={(e) => {
                       const newColor = e.target.value
-                      updateGroup(group.id, { ...group, color: newColor })
+                      secureUpdateGroup(group.id, { ...group, color: newColor })
                     }}
                     style={{
                       width: '24px',
@@ -657,7 +674,7 @@ function App() {
                     <select
                       value={link.group_id || ''}
                       onChange={async (e) => {
-                        await updateLink(link.id, { group_id: e.target.value === '' ? null : e.target.value })
+                        await secureUpdateLink(link.id, { group_id: e.target.value === '' ? null : e.target.value })
                       }}
                       className="edit-input"
                       style={{ width: '100%' }}
@@ -690,11 +707,7 @@ function App() {
                       type="color"
                       value={link.color || '#3b82f6'}
                       onChange={async (e) => {
-                        try {
-                          await updateLink(link.id, { color: e.target.value })
-                        } catch (error) {
-                          console.error('Error updating link color:', error)
-                        }
+                        await secureUpdateLink(link.id, { color: e.target.value })
                       }}
                       style={{
                         width: '24px',
@@ -740,11 +753,7 @@ function App() {
                         type="color"
                         value={link.color || '#3b82f6'}
                         onChange={async (e) => {
-                          try {
-                            await updateLink(link.id, { color: e.target.value })
-                          } catch (error) {
-                            console.error('Error updating link color:', error)
-                          }
+                          await secureUpdateLink(link.id, { color: e.target.value })
                         }}
                         style={{
                           width: '24px',
@@ -832,7 +841,7 @@ function App() {
           
           <button 
             className="delete-button"
-            onClick={() => deleteGroup(group.id)}
+                                    onClick={() => secureDeleteGroup(group.id)}
             style={{ alignSelf: 'flex-end', marginTop: '8px' }}
           >
             Delete Group
@@ -862,13 +871,16 @@ function App() {
 
     try {
       if (editingLink && editingLink.field) {
-        await updateLink(editingLink.id, { [editingLink.field]: tempEditValue })
-        setEditingLink(null)
+        const success = await secureUpdateLink(editingLink.id, { [editingLink.field]: tempEditValue })
+        if (success) {
+          setEditingLink(null)
+          setTempEditValue('')
+        }
       } else if (editingGroup) {
-        await updateGroup(editingGroup, { name: tempEditValue })
+        await secureUpdateGroup(editingGroup, { name: tempEditValue })
         setEditingGroup(null)
+        setTempEditValue('')
       }
-      setTempEditValue('')
     } catch (err) {
       console.error('Error saving edit:', err)
     }
@@ -881,11 +893,9 @@ function App() {
   }
 
   const handleLinkGroupEdit = async (linkId: string, newGroupId: string | null) => {
-    try {
-      await updateLink(linkId, { group_id: newGroupId })
+    const success = await secureUpdateLink(linkId, { group_id: newGroupId })
+    if (success) {
       setEditingLinkGroup(null)
-    } catch (error) {
-      console.error('Error updating link group:', error)
     }
   }
 
@@ -912,12 +922,21 @@ function App() {
   }
 
   const handleSavePositions = async (positions: { [key: string]: { x: number; y: number } }) => {
+    // 🔐 SECURITY CHECK: Must have NFT ownership to save
+    if (!canEditProfile()) {
+      console.log('🚫 Save blocked: No NFT ownership')
+      alert('⚠️ You need to own a qualifying NFT to save changes to the network layout.')
+      return
+    }
+    
+    if (!activeProfile) return
     const profile = getProfile(activeProfile)
     if (!profile) return
     setProfileSaveLoading(prev => ({ ...prev, [profile.id]: true }))
     try {
       const updated = await updateNetworkProfile(profile.id, { positions })
       setNetworkProfiles(prev => prev.map(p => p.id === profile.id ? { ...p, positions: updated.positions } : p))
+      console.log('✅ Network layout saved successfully')
     } catch (err) {
       alert('Failed to save network layout')
     } finally {
@@ -925,27 +944,272 @@ function App() {
     }
   }
 
-  const handleLoadProfile = (profileNumber: 1 | 2 | 3) => {
-    setActiveProfile(profileNumber)
+  const handleProfileSelect = (profileId: number) => {
+    console.log('🎯 Profile Selection:', { profileId, available: networkProfiles.map(p => ({ id: p.id, name: p.name })) })
+    
+    setActiveProfile(profileId)
+    const profile = networkProfiles.find(p => p.id === profileId)
+    
+    if (profile) {
+      console.log('✅ Profile found and setting as current:', { id: profile.id, name: profile.name })
+      setCurrentUserProfile(profile)
+    } else {
+      console.error('❌ Profile not found for ID:', profileId)
+    }
+    
     // The GraphView component will handle loading the positions on profile change
   }
 
-  // Wallet authentication handlers
-  const handleAuthChange = (authenticated: boolean, address: string | null) => {
-    setIsAuthenticated(authenticated)
-    setConnectedWalletAddress(address)
+  const handleProfileCreated = () => {
+    // Reload profiles when a new one is created
+    if (connectedWalletAddress) {
+      loadUserProfiles(connectedWalletAddress)
+    } else {
+      loadGlobalProfiles()
+    }
   }
 
-  const handleWalletProfileLoad = (profileId: number) => {
-    setActiveProfile(profileId as 1 | 2 | 3)
-    const profile = networkProfiles.find(p => p.id === profileId)
-    setCurrentUserProfile(profile)
+  // Wallet authentication handlers
+  const handleAuthChange = (authenticated: boolean, address: string | null, hasNFTs: boolean, ownedNFTs: { id: string; name: string }[] = []) => {
+    console.log('🔐 Auth Change in App.tsx:', {
+      authenticated,
+      address,
+      hasNFTs,
+      ownedNFTs,
+      previousState: {
+        isAuthenticated,
+        connectedWalletAddress,
+        hasNFTs: hasNFTs
+      }
+    })
+    
+    setIsAuthenticated(authenticated)
+    setConnectedWalletAddress(address)
+    setHasNFTs(hasNFTs)
+    setOwnedNFTs(ownedNFTs)
+    
+    if (authenticated && address) {
+      console.log('📝 Loading user profiles for authenticated wallet:', address)
+      loadUserProfiles(address)
+    } else {
+      // When not authenticated, still load global profiles so users can view existing content
+      console.log('📚 Loading global profiles (not authenticated)')
+      loadGlobalProfiles()
+    }
+  }
+
+  const loadGlobalProfiles = async () => {
+    try {
+      const globalProfiles = await fetchNetworkProfiles()
+      setNetworkProfiles(globalProfiles)
+      
+      if (globalProfiles.length > 0) {
+        // Auto-select TechKeyz profile or first available
+        const techKeyzProfile = globalProfiles.find(p => p.name === 'TechKeyz Profile' || p.id === 1)
+        const selectedProfile = techKeyzProfile || globalProfiles[0]
+        setActiveProfile(selectedProfile.id)
+        setCurrentUserProfile(selectedProfile)
+        
+        console.log(`✅ Loaded ${globalProfiles.length} global profiles, selected: ${selectedProfile.name}`)
+      }
+    } catch (error) {
+      console.error('Error loading global profiles:', error)
+    }
+  }
+
+  const loadUserProfiles = async (walletAddress: string) => {
+    try {
+      // Load both global profiles AND user-specific profiles (across all their NFTs)
+      const [globalProfiles, userProfiles] = await Promise.all([
+        fetchNetworkProfiles(), // All existing profiles (including TechKeyz)
+        fetchAllUserProfilesForWallet(walletAddress) // User's specific profiles across all NFTs
+      ])
+      
+      console.log('📊 Profile Loading Results:', {
+        walletAddress,
+        globalProfiles: globalProfiles.length,
+        userProfiles: userProfiles.length,
+        userProfileDetails: userProfiles.map(p => ({ id: p.id, name: p.name, wallet: p.wallet_address })),
+        globalProfileDetails: globalProfiles.map(p => ({ id: p.id, name: p.name, wallet: p.wallet_address }))
+      })
+      
+      // Combine profiles, removing duplicates (user profiles override global ones with same ID)
+      const userProfileIds = new Set(userProfiles.map(p => p.id))
+      const combinedProfiles = [
+        ...userProfiles, // User profiles first (priority)
+        ...globalProfiles.filter(p => !userProfileIds.has(p.id)) // Global profiles that aren't overridden
+      ]
+      
+      setNetworkProfiles(combinedProfiles)
+      
+      // Auto-select profile: prefer TechKeyz, then user's first profile, then any first profile
+      if (combinedProfiles.length > 0) {
+        const techKeyzProfile = combinedProfiles.find(p => p.name === 'TechKeyz Profile' || p.nft_token_id === '430')
+        const userFirstProfile = userProfiles[0]
+        const selectedProfile = techKeyzProfile || userFirstProfile || combinedProfiles[0]
+        
+        setActiveProfile(selectedProfile.id)
+        setCurrentUserProfile(selectedProfile)
+        
+        console.log(`✅ Loaded ${combinedProfiles.length} profiles, selected: ${selectedProfile.name}`)
+      }
+    } catch (error) {
+      console.error('Error loading user profiles:', error)
+      // Fallback to just global profiles
+      try {
+        const globalProfiles = await fetchNetworkProfiles()
+        setNetworkProfiles(globalProfiles)
+        if (globalProfiles.length > 0) {
+          const techKeyzProfile = globalProfiles.find(p => p.name === 'TechKeyz Profile' || p.id === 1)
+          const selectedProfile = techKeyzProfile || globalProfiles[0]
+          setActiveProfile(selectedProfile.id)
+          setCurrentUserProfile(selectedProfile)
+        }
+      } catch (fallbackError) {
+        console.error('Error loading fallback profiles:', fallbackError)
+      }
+    }
   }
 
   const canEditProfile = () => {
-    if (!isAuthenticated || !connectedWalletAddress) return false
+    // Strict authentication: must be connected, have NFTs, and own the profile
+    if (!isAuthenticated || !connectedWalletAddress || !hasNFTs) {
+      console.log('🚫 Edit blocked:', {
+        isAuthenticated,
+        connectedWalletAddress: !!connectedWalletAddress,
+        hasNFTs,
+        reason: !isAuthenticated ? 'Not authenticated' : !connectedWalletAddress ? 'No wallet' : 'No NFTs'
+      })
+      return false
+    }
+    
     const currentProfile = getProfile(activeProfile)
-    return currentProfile?.wallet_address === connectedWalletAddress
+    
+    // Handle demo mode or when wallet_address column doesn't exist
+    if (!currentProfile?.wallet_address) {
+      // Even in demo mode, require NFT ownership
+      console.log('✅ Demo mode edit allowed - NFT verified')
+      return hasNFTs
+    }
+    
+    // Must own both the profile AND have NFTs
+    const canEdit = currentProfile.wallet_address === connectedWalletAddress && hasNFTs
+    console.log('🔐 Profile edit check:', {
+      profileOwner: currentProfile.wallet_address,
+      connectedWallet: connectedWalletAddress,
+      hasNFTs,
+      canEdit
+    })
+    return canEdit
+  }
+
+  // 🔐 SECURE WRAPPER FUNCTIONS - All edit operations go through these
+  const secureEditNote = async (id: string, updates: any) => {
+    if (!canEditProfile()) {
+      console.log('🚫 Edit note blocked: No NFT ownership')
+      alert('⚠️ You need to own a qualifying NFT to edit notes.')
+      return
+    }
+    try {
+      await editNote(id, updates)
+      console.log('✅ Note edited successfully')
+    } catch (err) {
+      console.error('Error editing note:', err)
+      alert('Failed to edit note')
+    }
+  }
+
+  const secureRemoveNote = async (id: string) => {
+    if (!canEditProfile()) {
+      console.log('🚫 Delete note blocked: No NFT ownership')
+      alert('⚠️ You need to own a qualifying NFT to delete notes.')
+      return
+    }
+    try {
+      await removeNote(id)
+      console.log('✅ Note deleted successfully')
+    } catch (err) {
+      console.error('Error deleting note:', err)
+      alert('Failed to delete note')
+    }
+  }
+
+  const secureEditNoteGroup = async (id: string, updates: any) => {
+    if (!canEditProfile()) {
+      console.log('🚫 Edit note group blocked: No NFT ownership')
+      alert('⚠️ You need to own a qualifying NFT to edit note groups.')
+      return
+    }
+    try {
+      await editNoteGroup(id, updates)
+      console.log('✅ Note group edited successfully')
+    } catch (err) {
+      console.error('Error editing note group:', err)
+      alert('Failed to edit note group')
+    }
+  }
+
+  const secureRemoveNoteGroup = async (id: string) => {
+    if (!canEditProfile()) {
+      console.log('🚫 Delete note group blocked: No NFT ownership')
+      alert('⚠️ You need to own a qualifying NFT to delete note groups.')
+      return
+    }
+    try {
+      await removeNoteGroup(id)
+      console.log('✅ Note group deleted successfully')
+    } catch (err) {
+      console.error('Error deleting note group:', err)
+      alert('Failed to delete note group')
+    }
+  }
+
+  const secureUpdateGroup = async (id: string, updates: any) => {
+    if (!canEditProfile()) {
+      console.log('🚫 Update group blocked: No NFT ownership')
+      alert('⚠️ You need to own a qualifying NFT to update groups.')
+      return
+    }
+    try {
+      await updateGroup(id, updates)
+      console.log('✅ Group updated successfully')
+    } catch (err) {
+      console.error('Error updating group:', err)
+      alert('Failed to update group')
+    }
+  }
+
+  const secureDeleteGroup = async (id: string) => {
+    if (!canEditProfile()) {
+      console.log('🚫 Delete group blocked: No NFT ownership')
+      alert('⚠️ You need to own a qualifying NFT to delete groups.')
+      return
+    }
+    try {
+      await deleteGroup(id)
+      console.log('✅ Group deleted successfully')
+    } catch (err) {
+      console.error('Error deleting group:', err)
+      alert('Failed to delete group')
+    }
+  }
+
+  // 🔐 SECURE LINK UPDATE FUNCTIONS
+  const secureUpdateLink = async (id: string, updates: any) => {
+    if (!canEditProfile()) {
+      console.log('🚫 Update link blocked: No NFT ownership')
+      alert('⚠️ You need to own a qualifying NFT to edit links.')
+      return false
+    }
+    try {
+      await updateLink(id, updates)
+      console.log('✅ Link updated successfully')
+      return true
+    } catch (err) {
+      console.error('Error updating link:', err)
+      alert('Failed to update link')
+      return false
+    }
   }
 
   useEffect(() => {
@@ -980,10 +1244,27 @@ function App() {
 
   // Fetch network profiles from Supabase on mount
   useEffect(() => {
-    fetchNetworkProfiles().then(profiles => {
-      setNetworkProfiles(profiles)
-      setProfileNameEdits(profiles.reduce((acc: any, p: any) => ({ ...acc, [p.id]: p.name }), {}))
-    })
+    const initializeProfiles = async () => {
+      try {
+        const profiles = await fetchNetworkProfiles()
+        setNetworkProfiles(profiles)
+        setProfileNameEdits(profiles.reduce((acc: any, p: any) => ({ ...acc, [p.id]: p.name }), {}))
+        
+        // Auto-select TechKeyz profile if available and no profile is currently selected
+        if (profiles.length > 0 && !activeProfile) {
+          const techKeyzProfile = profiles.find(p => p.name === 'TechKeyz Profile' || p.id === 1)
+          const selectedProfile = techKeyzProfile || profiles[0]
+          setActiveProfile(selectedProfile.id)
+          setCurrentUserProfile(selectedProfile)
+          
+          console.log(`✅ App initialized with profile: ${selectedProfile.name}`)
+        }
+      } catch (error) {
+        console.error('Error initializing profiles:', error)
+      }
+    }
+    
+    initializeProfiles()
   }, [])
 
   // Load email alerts from Supabase on mount
@@ -1103,8 +1384,8 @@ function App() {
     return () => clearInterval(interval)
   }, [groups, links, notes, noteGroups]) // Dependencies for finding related items
 
-  // Get profile by id (1, 2, 3)
-  const getProfile = (id: number) => networkProfiles.find(p => p.id === id)
+  // Get profile by id
+  const getProfile = (id: number | null) => id ? networkProfiles.find(p => p.id === id) : null
 
   // Handle profile name edit
   const handleProfileNameChange = (id: number, value: string) => {
@@ -1113,12 +1394,22 @@ function App() {
 
   // Save profile name to Supabase
   const handleProfileNameSave = async (id: number) => {
+    // 🔐 SECURITY CHECK: Must have NFT ownership to edit profile names
+    if (!canEditProfile()) {
+      console.log('🚫 Edit profile name blocked: No NFT ownership')
+      alert('⚠️ You need to own a qualifying NFT to edit profile names.')
+      setEditingProfile(null)
+      return
+    }
+    
     setProfileSaveLoading(prev => ({ ...prev, [id]: true }))
     try {
       const updated = await updateNetworkProfile(id, { name: profileNameEdits[id] })
       setNetworkProfiles(prev => prev.map(p => p.id === id ? { ...p, name: updated.name } : p))
       setEditingProfile(null)
+      console.log('✅ Profile name updated successfully')
     } catch (err) {
+      console.error('Error saving profile name:', err)
       alert('Failed to save profile name')
     } finally {
       setProfileSaveLoading(prev => ({ ...prev, [id]: false }))
@@ -1269,7 +1560,7 @@ function App() {
       {/* Wallet Authentication */}
       <div style={{ padding: '16px', maxWidth: '1200px', margin: '0 auto' }}>
         <WalletAuth 
-          onProfileLoad={handleWalletProfileLoad}
+          onProfileLoad={handleProfileSelect}
           currentProfile={getProfile(activeProfile)}
           onAuthChange={handleAuthChange}
         />
@@ -1379,7 +1670,7 @@ function App() {
                         <form
                           onSubmit={async (e) => {
                             e.preventDefault()
-                            await editNoteGroup(noteGroup.id, editNoteGroupValue)
+                            await secureEditNoteGroup(noteGroup.id, editNoteGroupValue)
                             setEditingNoteGroup(null)
                             setEditNoteGroupValue({ name: '', color: '' })
                           }}
@@ -1478,7 +1769,7 @@ function App() {
                               Edit
                             </button>
                             <button
-                              onClick={() => removeNoteGroup(noteGroup.id)}
+                              onClick={() => secureRemoveNoteGroup(noteGroup.id)}
                               style={{
                                 background: 'none',
                                 border: 'none',
@@ -1504,9 +1795,23 @@ function App() {
               <form
                 onSubmit={async e => {
                   e.preventDefault()
-                  await createNoteGroup(newNoteGroup.name, newNoteGroup.color)
-                  setNewNoteGroup({ name: '', color: '#3b82f6' })
-                  setIsAddingNoteGroup(false)
+                  
+                  // 🔐 SECURITY CHECK: Must have NFT ownership to create note groups
+                  if (!canEditProfile()) {
+                    console.log('🚫 Create note group blocked: No NFT ownership')
+                    alert('⚠️ You need to own a qualifying NFT to create note groups.')
+                    return
+                  }
+                  
+                  try {
+                    await createNoteGroup(newNoteGroup.name, newNoteGroup.color)
+                    setNewNoteGroup({ name: '', color: '#3b82f6' })
+                    setIsAddingNoteGroup(false)
+                    console.log('✅ Note group created successfully')
+                  } catch (err) {
+                    console.error('Error creating note group:', err)
+                    alert('Failed to create note group')
+                  }
                 }}
                 className="add-link-form"
                 style={{ marginBottom: 16 }}
@@ -1536,15 +1841,29 @@ function App() {
               <form
                 onSubmit={async e => {
                   e.preventDefault()
-                  await createNote(
-                    newNote.title,
-                    newNote.description,
-                    newNote.note_group_id === '' ? null : newNote.note_group_id,
-                    newNote.group_id === '' ? null : newNote.group_id,
-                    newNote.link_id === '' ? null : newNote.link_id
-                  )
-                  setNewNote({ title: '', description: '', note_group_id: '', group_id: '', link_id: '' })
-                  setIsAddingNote(false)
+                  
+                  // 🔐 SECURITY CHECK: Must have NFT ownership to create notes
+                  if (!canEditProfile()) {
+                    console.log('🚫 Create note blocked: No NFT ownership')
+                    alert('⚠️ You need to own a qualifying NFT to create notes.')
+                    return
+                  }
+                  
+                  try {
+                    await createNote(
+                      newNote.title,
+                      newNote.description,
+                      newNote.note_group_id === '' ? null : newNote.note_group_id,
+                      newNote.group_id === '' ? null : newNote.group_id,
+                      newNote.link_id === '' ? null : newNote.link_id
+                    )
+                    setNewNote({ title: '', description: '', note_group_id: '', group_id: '', link_id: '' })
+                    setIsAddingNote(false)
+                    console.log('✅ Note created successfully')
+                  } catch (err) {
+                    console.error('Error creating note:', err)
+                    alert('Failed to create note')
+                  }
                 }}
                 className="add-link-form"
                 style={{ marginBottom: 16 }}
@@ -1640,6 +1959,14 @@ function App() {
             <form
               onSubmit={async e => {
                 e.preventDefault()
+                
+                // 🔐 SECURITY CHECK: Must have NFT ownership to create email alerts
+                if (!canEditProfile()) {
+                  console.log('🚫 Create email alert blocked: No NFT ownership')
+                  alert('⚠️ You need to own a qualifying NFT to create email alerts.')
+                  return
+                }
+                
                 if (newAlert.trim() && newAlertEmail.trim()) {
                   const newAlertData = {
                     email: newAlert.trim(),
@@ -1854,6 +2181,13 @@ function App() {
                     </div>
                     <button
                       onDoubleClick={async () => {
+                        // 🔐 SECURITY CHECK: Must have NFT ownership to delete email alerts
+                        if (!canEditProfile()) {
+                          console.log('🚫 Delete email alert blocked: No NFT ownership')
+                          alert('⚠️ You need to own a qualifying NFT to delete email alerts.')
+                          return
+                        }
+                        
                         // Remove from database if it has an ID
                         if (alert.id) {
                           try {
@@ -1977,11 +2311,25 @@ function App() {
                   <form
                     onSubmit={async (e) => {
                       e.preventDefault()
+                      
+                      // 🔐 SECURITY CHECK: Must have NFT ownership to add groups
+                      if (!canEditProfile()) {
+                        console.log('🚫 Add group blocked: No NFT ownership')
+                        alert('⚠️ You need to own a qualifying NFT to add groups.')
+                        return
+                      }
+                      
                       if (newGroup.name.trim()) {
-                        await addGroup(newGroup.name, newGroup.color, null, newGroup.parent_group_id || null)
-                        setNewGroup({ name: '', color: '#3b82f6', parent_group_id: '' })
-                        setIsAddingGroup(false)
-                        setIsAddingSubgroup(false)
+                        try {
+                          await addGroup(newGroup.name, newGroup.color, null, newGroup.parent_group_id || null)
+                          setNewGroup({ name: '', color: '#3b82f6', parent_group_id: '' })
+                          setIsAddingGroup(false)
+                          setIsAddingSubgroup(false)
+                          console.log('✅ Group added successfully')
+                        } catch (err) {
+                          console.error('Error adding group:', err)
+                          alert('Failed to add group')
+                        }
                       }
                     }}
                     className="add-link-form"
@@ -2216,7 +2564,7 @@ function App() {
                             <select
                               value={link.group_id || ''}
                               onChange={async (e) => {
-                                await updateLink(link.id, { group_id: e.target.value === '' ? null : e.target.value })
+                                await secureUpdateLink(link.id, { group_id: e.target.value === '' ? null : e.target.value })
                               }}
                               className="edit-input"
                               style={{ width: '100%' }}
@@ -2230,12 +2578,7 @@ function App() {
                           type="color"
                           value={link.color || '#3b82f6'}
                           onChange={async (e) => {
-                            try {
-                              await updateLink(link.id, { color: e.target.value })
-                            } catch (error) {
-                              console.error('Error updating link color:', error)
-                              // Optionally show an error message to the user
-                            }
+                            await secureUpdateLink(link.id, { color: e.target.value })
                           }}
                           className="edit-input"
                           style={{ width: 40, height: 40, padding: 0, border: 'none', background: 'none' }}
@@ -2366,7 +2709,7 @@ function App() {
                                 value={group.color || '#3b82f6'}
                                 onChange={async (e) => {
                                   try {
-                                    await updateGroup(group.id, { color: e.target.value })
+                                    await secureUpdateGroup(group.id, { color: e.target.value })
                                   } catch (error) {
                                     console.error('Error updating group color:', error)
                                   }
@@ -2378,7 +2721,7 @@ function App() {
                                 value={group.parent_group_id || ''}
                                 onChange={async (e) => {
                                   try {
-                                    await updateGroup(group.id, { parent_group_id: e.target.value === '' ? null : e.target.value })
+                                    await secureUpdateGroup(group.id, { parent_group_id: e.target.value === '' ? null : e.target.value })
                                   } catch (error) {
                                     console.error('Error updating group parent:', error)
                                   }
@@ -2403,7 +2746,7 @@ function App() {
                                 <button onClick={handleCancelEdit} className="cancel-button">Cancel</button>
                                 <button 
                                   onClick={async () => {
-                                    await deleteGroup(group.id)
+                                    await secureDeleteGroup(group.id)
                                     setEditingGroup(null)
                                     setTempEditValue('')
                                   }} 
@@ -2441,7 +2784,7 @@ function App() {
                                   <select
                                     value={link.group_id || ''}
                                     onChange={async (e) => {
-                                      await updateLink(link.id, { group_id: e.target.value === '' ? null : e.target.value })
+                                      await secureUpdateLink(link.id, { group_id: e.target.value === '' ? null : e.target.value })
                                     }}
                                     className="edit-input"
                                     style={{ width: '100%' }}
@@ -2462,11 +2805,7 @@ function App() {
                                     type="color"
                                     value={link.color || '#3b82f6'}
                                     onChange={async (e) => {
-                                      try {
-                                        await updateLink(link.id, { color: e.target.value })
-                                      } catch (error) {
-                                        console.error('Error updating link color:', error)
-                                      }
+                                      await secureUpdateLink(link.id, { color: e.target.value })
                                     }}
                                     className="edit-input"
                                     style={{ width: 40, height: 40, padding: 0, border: 'none', background: 'none' }}
@@ -2655,6 +2994,8 @@ function App() {
           </div>
         </section>
 
+
+
         <section className="graph-section" style={{
           border: '1px solid #ffffff',
           borderRadius: 8,
@@ -2662,82 +3003,39 @@ function App() {
           background: '#23272f'
         }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-            <h2 style={{ color: '#ffffff', margin: 0 }}>Network Graph</h2>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-              <div style={{ display: 'flex', gap: '8px', marginRight: '16px' }}>
-                {[1, 2, 3].map((profileNum) => {
-                  const profile = getProfile(profileNum)
-                  return (
-                    <div key={profileNum} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                      <button
-                        onClick={() => setActiveProfile(profileNum as 1 | 2 | 3)}
-                        style={{
-                          background: activeProfile === profileNum ? '#3b82f6' : '#475569',
-                          color: '#ffffff',
-                          border: '1px solid #64748b',
-                          borderRadius: '4px',
-                          padding: '4px 8px',
-                          cursor: 'pointer',
-                          fontSize: '12px'
-                        }}
-                      >
-                        {editingProfile === profileNum ? (
-                          <input
-                            type="text"
-                            value={profileNameEdits[profileNum] || ''}
-                            onChange={e => handleProfileNameChange(profileNum, e.target.value)}
-                            style={{
-                              width: '80px',
-                              background: '#334155',
-                              color: '#ffffff',
-                              border: '1px solid #64748b',
-                              borderRadius: '4px',
-                              padding: '2px 4px',
-                              fontSize: '12px'
-                            }}
-                          />
-                        ) : (
-                          profile?.name || `Profile ${profileNum}`
-                        )}
-                      </button>
-                      {editingProfile === profileNum ? (
-                        <button
-                          onClick={() => handleProfileNameSave(profileNum)}
-                          disabled={profileSaveLoading[profileNum]}
-                          style={{
-                            background: '#10b981',
-                            color: '#fff',
-                            border: 'none',
-                            borderRadius: '4px',
-                            padding: '2px 8px',
-                            fontSize: '12px',
-                            marginLeft: '2px',
-                            cursor: profileSaveLoading[profileNum] ? 'not-allowed' : 'pointer'
-                          }}
-                        >
-                          {profileSaveLoading[profileNum] ? 'Saving...' : 'Save'}
-                        </button>
-                      ) : (
-                        <button
-                          onClick={() => setEditingProfile(profileNum)}
-                          style={{
-                            background: '#64748b',
-                            color: '#fff',
-                            border: 'none',
-                            borderRadius: '4px',
-                            padding: '2px 8px',
-                            fontSize: '12px',
-                            marginLeft: '2px',
-                            cursor: 'pointer'
-                          }}
-                        >
-                          Edit
-                        </button>
-                      )}
-                    </div>
-                  )
-                })}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+              <h2 style={{ color: '#ffffff', margin: 0 }}>Network Graph</h2>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <NFTProfileSelector 
+                  connectedWallet={connectedWalletAddress}
+                  ownedNFTs={ownedNFTs}
+                  onProfileSelect={handleProfileSelect}
+                  currentProfile={currentUserProfile}
+                  hasNFTs={hasNFTs}
+                  allProfiles={networkProfiles}
+                  onProfileCreated={handleProfileCreated}
+                />
+                <GeneralProfileSelector 
+                  connectedWallet={connectedWalletAddress}
+                  ownedNFTs={ownedNFTs}
+                  onProfileSelect={handleProfileSelect}
+                  currentProfile={currentUserProfile}
+                  hasNFTs={hasNFTs}
+                  allProfiles={networkProfiles}
+                  onProfileCreated={handleProfileCreated}
+                />
+                <SavedProfileSelector 
+                  connectedWallet={connectedWalletAddress}
+                  ownedNFTs={ownedNFTs}
+                  onProfileSelect={handleProfileSelect}
+                  currentProfile={currentUserProfile}
+                  hasNFTs={hasNFTs}
+                  allProfiles={networkProfiles}
+                  onProfileCreated={handleProfileCreated}
+                />
               </div>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
               <label style={{ color: '#ffffff', fontSize: '14px' }}>
                 Title Size:
                 <input
@@ -2770,9 +3068,10 @@ function App() {
                 onGroupNodeClick={handleGroupNodeClick}
                 onSavePositions={handleSavePositions}
                 titleFontSize={titleFontSize}
-                activeProfile={activeProfile}
+                activeProfile={activeProfile || 1}
                 profilePositions={getProfile(activeProfile)?.positions || {}}
                 emailAlerts={emailAlerts}
+                canEdit={canEditProfile()}
               />
             </div>
           {/* Preview window - always visible */}
