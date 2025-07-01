@@ -44,7 +44,7 @@ export const availableConnectors = [
 
 // NFT Contract Configuration
 export const NFT_CONTRACT = {
-  address: '0xBc5d78bB900B16f68B512fEf44Cf18c2d73FdaC7' as `0x${string}`, // Complete contract address
+  address: '0x36069BC5d097eF1DF38952B291F50c1AefFECb70' as `0x${string}`, // Complete contract address
   abi: [
     // ERC-721 ownerOf function
     {
@@ -67,9 +67,16 @@ export const NFT_CONTRACT = {
 
 // Known token IDs to check for ownership
 // Add more token IDs here as needed
+const KNOWN_NFTS = [
+  { id: '1', name: 'TechKeyz' },
+  // Add other known NFTs here
+]
+
+// Known token IDs to check for ownership
+// Add more token IDs here as needed
 export const KNOWN_TOKEN_IDS = [
-  { id: '430', name: 'TechKeyz Profile' },
-  { id: '1', name: 'Genesis NFT' },
+  { id: '1', name: 'TechKeyz Profile' },
+  { id: '430', name: 'Legacy TechKeyz' },
   { id: '2', name: 'Premium NFT' },
   { id: '100', name: 'Special Edition' },
   // Add more known tokens here

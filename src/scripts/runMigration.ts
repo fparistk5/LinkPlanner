@@ -30,7 +30,7 @@ async function runNFTMigration() {
       console.log('CREATE INDEX IF NOT EXISTS idx_network_profiles_nft_token_id ON network_profiles(nft_token_id);')
       console.log('')
       console.log('-- Update existing profiles (optional)')
-      console.log('-- UPDATE network_profiles SET nft_token_id = \'430\' WHERE name = \'TechKeyz Profile\';')
+      console.log('-- UPDATE network_profiles SET nft_token_id = \'1\' WHERE name = \'TechKeyz Profile\';')
       console.log('')
       console.log('📍 Go to: https://supabase.com/dashboard/project/[your-project]/sql')
       console.log('')

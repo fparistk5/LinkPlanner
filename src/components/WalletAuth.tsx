@@ -71,7 +71,7 @@ export function WalletAuth({ onProfileLoad, currentProfile, onAuthChange }: Wall
       
       if (owned.length > 0) {
         // Automatically select first owned NFT (preferring TechKeyz if available)
-        const techKeyzNFT = owned.find(nft => nft.id === '430')
+        const techKeyzNFT = owned.find(nft => nft.id === '1')
         const selectedNFT = techKeyzNFT || owned[0]
         setSelectedTokenId(selectedNFT.id)
         
@@ -207,53 +207,130 @@ export function WalletAuth({ onProfileLoad, currentProfile, onAuthChange }: Wall
   }
 
   return (
-    <div className="wallet-auth-container bg-white border border-gray-200 rounded-lg p-4 mb-4">
+    <div className="wallet-auth-container" style={{
+      backgroundColor: '#334155',
+      border: '1px solid #475569',
+      borderRadius: '8px',
+      padding: '24px',
+      marginBottom: '16px'
+    }}>
       {!isConnected ? (
-        <div className="text-center">
-          <h3 className="text-lg font-semibold text-gray-800 mb-2">Connect Your Wallet</h3>
-          <p className="text-gray-600 mb-4">
+        <div style={{ textAlign: 'center' }}>
+          <h3 style={{
+            fontSize: '20px',
+            fontWeight: '600',
+            color: '#f8fafc',
+            marginBottom: '12px'
+          }}>Connect Your Wallet</h3>
+          <p style={{
+            color: '#94a3b8',
+            marginBottom: '20px',
+            lineHeight: '1.5'
+          }}>
             Connect your wallet and verify NFT ownership to access your LinkPlanner profile. Only NFT holders can create and edit profiles.
           </p>
-          <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-            <p className="text-xs text-blue-800">
+          <div style={{
+            marginBottom: '20px',
+            padding: '16px',
+            backgroundColor: '#1e40af',
+            border: '1px solid #3b82f6',
+            borderRadius: '8px'
+          }}>
+            <p style={{
+              fontSize: '14px',
+              color: '#dbeafe',
+              margin: 0
+            }}>
               <strong>Required:</strong> NFT Contract {NFT_CONTRACT.address}
             </p>
           </div>
           <button
             onClick={handleConnect}
-            className="bg-blue-500 hover:bg-blue-600 text-white px-6 py-2 rounded-lg font-medium transition-colors"
+            style={{
+              backgroundColor: '#10b981',
+              color: '#ffffff',
+              padding: '12px 24px',
+              borderRadius: '8px',
+              border: 'none',
+              fontSize: '16px',
+              fontWeight: '500',
+              cursor: 'pointer',
+              transition: 'background-color 0.2s'
+            }}
+            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#059669'}
+            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#10b981'}
           >
             Connect Wallet
           </button>
         </div>
       ) : (
         <div>
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-3">
-              <div className="w-3 h-3 bg-green-500 rounded-full"></div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <div style={{
+                width: '12px',
+                height: '12px',
+                backgroundColor: '#10b981',
+                borderRadius: '50%'
+              }}></div>
               <div>
-                <p className="font-medium text-gray-800">
+                <p style={{
+                  fontWeight: '500',
+                  color: '#f8fafc',
+                  margin: 0,
+                  fontSize: '15px'
+                }}>
                   {address?.slice(0, 6)}...{address?.slice(-4)}
                 </p>
-                <p className="text-sm text-gray-600">
+                <p style={{
+                  fontSize: '13px',
+                  color: '#94a3b8',
+                  margin: 0,
+                  marginTop: '2px'
+                }}>
                   {userProfile?.name || 'Loading...'}
                 </p>
               </div>
             </div>
-            <div className="flex items-center space-x-2">
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               {ownedNFTs.length > 0 && (
-                <span className="bg-green-100 text-green-800 px-2 py-1 rounded text-xs font-medium">
+                <span style={{
+                  backgroundColor: '#065f46',
+                  color: '#6ee7b7',
+                  padding: '4px 8px',
+                  borderRadius: '6px',
+                  fontSize: '12px',
+                  fontWeight: '500'
+                }}>
                   NFT Verified ({ownedNFTs.length})
                 </span>
               )}
               {canEdit() && (
-                <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded text-xs font-medium">
+                <span style={{
+                  backgroundColor: '#1e40af',
+                  color: '#93c5fd',
+                  padding: '4px 8px',
+                  borderRadius: '6px',
+                  fontSize: '12px',
+                  fontWeight: '500'
+                }}>
                   Can Edit
                 </span>
               )}
               <button
                 onClick={handleDisconnect}
-                className="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded text-sm transition-colors"
+                style={{
+                  backgroundColor: '#6b7280',
+                  color: '#ffffff',
+                  padding: '8px 16px',
+                  borderRadius: '6px',
+                  border: 'none',
+                  fontSize: '13px',
+                  cursor: 'pointer',
+                  transition: 'background-color 0.2s'
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#4b5563'}
+                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#6b7280'}
               >
                 Disconnect
               </button>
@@ -261,80 +338,147 @@ export function WalletAuth({ onProfileLoad, currentProfile, onAuthChange }: Wall
           </div>
           
           {/* NFT Ownership Display */}
-          <div className="mt-3 p-3 bg-gray-50 border border-gray-200 rounded-lg">
-            <div className="flex items-center justify-between mb-2">
-              <h4 className="text-sm font-medium text-gray-800">Your NFTs</h4>
-              <span className="text-xs text-gray-600">
+          <div style={{
+            marginTop: '16px',
+            padding: '16px',
+            backgroundColor: '#1e293b',
+            border: '1px solid #475569',
+            borderRadius: '8px'
+          }}>
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              marginBottom: '12px'
+            }}>
+              <h4 style={{
+                fontSize: '14px',
+                fontWeight: '500',
+                color: '#f8fafc',
+                margin: 0
+              }}>Your NFTs</h4>
+              <span style={{
+                fontSize: '12px',
+                color: '#94a3b8'
+              }}>
                 Contract: {NFT_CONTRACT.address}
               </span>
             </div>
             
             {/* Debug Info */}
             {NFT_CONTRACT.address.length !== 42 && (
-              <div className="mb-3 p-2 bg-red-50 border border-red-200 rounded">
-                <p className="text-xs text-red-800">
+              <div style={{
+                marginBottom: '16px',
+                padding: '12px',
+                backgroundColor: '#991b1b',
+                border: '1px solid #dc2626',
+                borderRadius: '6px'
+              }}>
+                <p style={{
+                  fontSize: '12px',
+                  color: '#fecaca',
+                  margin: 0
+                }}>
                   ⚠️ <strong>Invalid Contract Address!</strong> 
                   Current address is {NFT_CONTRACT.address.length} characters, needs 42.
                 </p>
-                <p className="text-xs text-red-600 mt-1">
+                <p style={{
+                  fontSize: '12px',
+                  color: '#fca5a5',
+                  marginTop: '6px',
+                  margin: 0
+                }}>
                   Please update the full contract address in src/config/wallet.ts
                 </p>
               </div>
             )}
             
             {scanningNFTs ? (
-              <div className="flex items-center text-blue-600">
-                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-500 mr-2"></div>
-                <span className="text-xs">Scanning for NFTs...</span>
+              <div style={{ display: 'flex', alignItems: 'center', color: '#60a5fa' }}>
+                <div style={{
+                  animation: 'spin 1s linear infinite',
+                  borderRadius: '50%',
+                  width: '16px',
+                  height: '16px',
+                  border: '2px solid transparent',
+                  borderBottom: '2px solid #60a5fa',
+                  marginRight: '8px'
+                }}></div>
+                <span style={{ fontSize: '12px' }}>Scanning for NFTs...</span>
               </div>
             ) : ownedNFTs.length > 0 ? (
-              <div className="space-y-2">
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                 {ownedNFTs.map(nft => (
                   <div 
                     key={nft.id}
-                    className={`p-2 rounded border text-xs ${
-                      selectedTokenId === nft.id 
-                        ? 'bg-green-100 border-green-300 text-green-800' 
-                        : 'bg-white border-gray-200'
-                    }`}
+                    style={{
+                      padding: '12px',
+                      borderRadius: '6px',
+                      border: '1px solid #475569',
+                      fontSize: '12px',
+                      backgroundColor: selectedTokenId === nft.id ? '#065f46' : '#374151',
+                      color: selectedTokenId === nft.id ? '#6ee7b7' : '#f8fafc'
+                    }}
                   >
-                    <div className="flex items-center justify-between">
-                      <span className="font-medium">{nft.name}</span>
-                      <div className="flex items-center">
-                        <span className="text-gray-600 mr-2">Token #{nft.id}</span>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <span style={{ fontWeight: '500' }}>{nft.name}</span>
+                      <div style={{ display: 'flex', alignItems: 'center' }}>
+                        <span style={{ 
+                          color: selectedTokenId === nft.id ? '#a7f3d0' : '#94a3b8',
+                          marginRight: '8px'
+                        }}>Token #{nft.id}</span>
                         {selectedTokenId === nft.id && (
-                          <span className="text-green-600">✅ Active</span>
+                          <span style={{ color: '#10b981' }}>✅ Active</span>
                         )}
                       </div>
                     </div>
                   </div>
                 ))}
                 {ownedNFTs.length > 1 && (
-                  <p className="text-xs text-gray-600 mt-2">
+                  <p style={{
+                    fontSize: '12px',
+                    color: '#94a3b8',
+                    marginTop: '8px',
+                    margin: 0
+                  }}>
                     Using {ownedNFTs.find(nft => nft.id === selectedTokenId)?.name} for profile access
                   </p>
                 )}
               </div>
             ) : (
-              <div className="space-y-2">
-                <div className="flex items-center text-red-600">
-                  <span className="text-lg mr-1">❌</span>
-                  <span className="text-xs">No qualifying NFTs found in your wallet</span>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', color: '#ef4444' }}>
+                  <span style={{ fontSize: '16px', marginRight: '6px' }}>❌</span>
+                  <span style={{ fontSize: '12px' }}>No qualifying NFTs found in your wallet</span>
                 </div>
                 
                 {/* Debug info */}
-                <div className="text-xs text-gray-600 bg-white p-2 rounded border">
-                  <p><strong>Debug Info:</strong></p>
-                  <p>• Contract: {NFT_CONTRACT.address}</p>
-                  <p>• Your Wallet: {address}</p>
-                  <p>• Checking Token IDs: {KNOWN_TOKEN_IDS.map(t => t.id).join(', ')}</p>
-                  <p className="mt-1 text-blue-600">Check browser console for detailed logs</p>
+                <div style={{
+                  fontSize: '12px',
+                  color: '#94a3b8',
+                  backgroundColor: '#374151',
+                  padding: '12px',
+                  borderRadius: '6px',
+                  border: '1px solid #475569'
+                }}>
+                  <p style={{ margin: 0, marginBottom: '8px' }}><strong>Debug Info:</strong></p>
+                  <p style={{ margin: 0 }}>• Contract: {NFT_CONTRACT.address}</p>
+                  <p style={{ margin: 0 }}>• Your Wallet: {address}</p>
+                  <p style={{ margin: 0 }}>• Checking Token IDs: {KNOWN_TOKEN_IDS.map(t => t.id).join(', ')}</p>
+                  <p style={{ margin: '8px 0 0 0', color: '#60a5fa' }}>Check browser console for detailed logs</p>
                 </div>
                 
                 {NFT_CONTRACT.address.length === 42 && (
-                  <div className="text-xs text-gray-600 bg-blue-50 p-2 rounded border border-blue-200">
-                    <p className="text-blue-800">
-                      <strong>Expected:</strong> Your wallet should own token ID 430 on contract {NFT_CONTRACT.address}
+                  <div style={{
+                    fontSize: '12px',
+                    color: '#dbeafe',
+                    backgroundColor: '#1e40af',
+                    padding: '12px',
+                    borderRadius: '6px',
+                    border: '1px solid #3b82f6'
+                  }}>
+                    <p style={{ margin: 0, color: '#93c5fd' }}>
+                      <strong>Expected:</strong> Your wallet should own token ID 1 on contract {NFT_CONTRACT.address}
                     </p>
                   </div>
                 )}
@@ -345,8 +489,18 @@ export function WalletAuth({ onProfileLoad, currentProfile, onAuthChange }: Wall
       )}
       
       {isConnected && !canEdit() && currentProfile && (
-        <div className="mt-3 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
-          <p className="text-yellow-800 text-sm">
+        <div style={{
+          marginTop: '16px',
+          padding: '16px',
+          backgroundColor: '#92400e',
+          border: '1px solid #d97706',
+          borderRadius: '8px'
+        }}>
+          <p style={{
+            color: '#fcd34d',
+            fontSize: '14px',
+            margin: 0
+          }}>
             ⚠️ {ownedNFTs.length === 0
               ? 'NFT ownership required to edit this profile. You must own a qualifying NFT.'
               : "You're viewing someone else's profile. Connect with the owner's wallet to edit."
@@ -456,4 +610,262 @@ export function WalletAuth({ onProfileLoad, currentProfile, onAuthChange }: Wall
     )}
   </div>
 )
+}
+
+export function CompactWalletAuth({ 
+  onProfileLoad, 
+  currentProfile, 
+  onAuthChange 
+}: WalletAuthProps) {
+  const { address, isConnected } = useAccount()
+  const { disconnect } = useDisconnect()
+  const { connect } = useConnect()
+  const [showWalletModal, setShowWalletModal] = useState(false)
+  const [ownedNFTs, setOwnedNFTs] = useState<Array<{id: string, name: string}>>([])
+  const [selectedTokenId, setSelectedTokenId] = useState<string>('')
+  const [scanningNFTs, setScanningNFTs] = useState(false)
+
+  // Create multiple ownership checks for all known token IDs
+  const nftChecks = KNOWN_TOKEN_IDS.map(token => {
+    const { data: owner } = useReadContract({
+      address: NFT_CONTRACT.address,
+      abi: NFT_CONTRACT.abi,
+      functionName: 'ownerOf',
+      args: [BigInt(token.id)],
+      query: {
+        enabled: isConnected && !!address,
+      },
+    })
+    
+    return { tokenId: token.id, tokenName: token.name, owner }
+  })
+
+  // Scan for owned NFTs when wallet connects
+  useEffect(() => {
+    if (isConnected && address) {
+      setScanningNFTs(true)
+      const owned = nftChecks
+        .filter(check => check.owner && String(check.owner).toLowerCase() === String(address).toLowerCase())
+        .map(check => ({ id: check.tokenId, name: check.tokenName }))
+      
+      setOwnedNFTs(owned)
+      setScanningNFTs(false)
+      
+      if (owned.length > 0) {
+        const techKeyzNFT = owned.find(nft => nft.id === '1')
+        const selectedNFT = techKeyzNFT || owned[0]
+        setSelectedTokenId(selectedNFT.id)
+        onAuthChange(true, String(address), true, owned)
+      } else {
+        setSelectedTokenId('')
+        onAuthChange(false, null, false, [])
+      }
+    } else {
+      setOwnedNFTs([])
+      setSelectedTokenId('')
+      onAuthChange(false, null, false, [])
+    }
+  }, [isConnected, address, ...nftChecks.map(check => check.owner)])
+
+  const handleConnect = () => {
+    setShowWalletModal(true)
+  }
+
+  const handleWalletSelect = async (walletKey: string) => {
+    let connector
+    
+    switch (walletKey) {
+      case 'metaMask':
+        connector = metaMask()
+        break
+      case 'coinbaseWallet':
+        connector = coinbaseWallet({ appName: 'LinkPlanner' })
+        break
+      default:
+        connector = injected()
+    }
+    
+    connect({ connector })
+    setShowWalletModal(false)
+  }
+
+  const handleDisconnect = () => {
+    disconnect()
+  }
+
+  return (
+    <>
+      <div style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: '12px',
+        padding: '8px 16px',
+        backgroundColor: '#334155',
+        borderRadius: '8px',
+        border: '1px solid #475569',
+        fontSize: '14px'
+      }}>
+        {!isConnected ? (
+          <>
+            <span style={{ color: '#94a3b8', fontSize: '13px' }}>NFT Required</span>
+            <button
+              onClick={handleConnect}
+              style={{
+                padding: '6px 12px',
+                fontSize: '13px',
+                border: 'none',
+                borderRadius: '4px',
+                backgroundColor: '#10b981',
+                color: '#ffffff',
+                cursor: 'pointer',
+                fontWeight: '500'
+              }}
+            >
+              Connect Wallet
+            </button>
+          </>
+        ) : (
+          <>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <div style={{ 
+                width: '8px', 
+                height: '8px', 
+                borderRadius: '50%', 
+                backgroundColor: ownedNFTs.length > 0 ? '#10b981' : '#ef4444' 
+              }}></div>
+              <span style={{ 
+                color: '#f8fafc', 
+                fontSize: '13px',
+                fontWeight: '500'
+              }}>
+                {address?.slice(0, 6)}...{address?.slice(-4)}
+              </span>
+            </div>
+            {ownedNFTs.length > 0 && (
+              <span style={{
+                backgroundColor: '#10b981',
+                color: '#ffffff',
+                padding: '2px 6px',
+                borderRadius: '4px',
+                fontSize: '11px',
+                fontWeight: '500'
+              }}>
+                ✓ NFT ({ownedNFTs.length})
+              </span>
+            )}
+            <button
+              onClick={handleDisconnect}
+              style={{
+                padding: '4px 8px',
+                fontSize: '12px',
+                border: '1px solid #64748b',
+                borderRadius: '4px',
+                backgroundColor: 'transparent',
+                color: '#94a3b8',
+                cursor: 'pointer'
+              }}
+            >
+              Disconnect
+            </button>
+          </>
+        )}
+        {scanningNFTs && (
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '4px',
+            color: '#60a5fa',
+            fontSize: '12px'
+          }}>
+            <div style={{
+              width: '12px',
+              height: '12px',
+              border: '2px solid #60a5fa',
+              borderTop: '2px solid transparent',
+              borderRadius: '50%',
+              animation: 'spin 1s linear infinite'
+            }}></div>
+            <span>Scanning...</span>
+          </div>
+        )}
+      </div>
+
+      {/* Wallet Selection Modal */}
+      {showWalletModal && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.5)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1000
+        }}>
+          <div style={{
+            backgroundColor: '#334155',
+            borderRadius: '12px',
+            padding: '24px',
+            width: '90%',
+            maxWidth: '400px',
+            border: '1px solid #475569'
+          }}>
+            <div style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              marginBottom: '20px'
+            }}>
+              <h3 style={{
+                color: '#f8fafc',
+                margin: 0,
+                fontSize: '18px',
+                fontWeight: '600'
+              }}>
+                Connect Wallet
+              </h3>
+              <button
+                onClick={() => setShowWalletModal(false)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: '#94a3b8',
+                  fontSize: '18px',
+                  cursor: 'pointer'
+                }}
+              >
+                ✕
+              </button>
+            </div>
+                         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+               {availableConnectors.map((connector) => (
+                 <button
+                   key={connector.key}
+                   onClick={() => handleWalletSelect(connector.key)}
+                   style={{
+                     display: 'flex',
+                     alignItems: 'center',
+                     gap: '12px',
+                     padding: '12px 16px',
+                     backgroundColor: '#475569',
+                     border: '1px solid #64748b',
+                     borderRadius: '8px',
+                     color: '#f8fafc',
+                     cursor: 'pointer',
+                     fontSize: '14px',
+                     fontWeight: '500'
+                   }}
+                 >
+                   <span>{connector.icon}</span>
+                   <span>{connector.name}</span>
+                 </button>
+               ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  )
 } 

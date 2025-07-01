@@ -1,17 +1,26 @@
 -- Migration: Transition to Dynamic NFT-Based Profiles
 -- This script cleans up the old hardcoded profiles and prepares for the new system
 
--- First, let's preserve any existing TechKeyz profile with token 430
+-- First, let's preserve any existing TechKeyz profile with token 1
 UPDATE network_profiles 
-SET 
-  wallet_address = NULL,  -- Will be set when user connects
-  nft_token_id = '430'
-WHERE name = 'TechKeyz Profile' OR id = 1;
+SET wallet_address = NULL, 
+    positions = positions::jsonb || '{"x": 0, "y": 0}'::jsonb 
+WHERE nft_token_id = '1';
+
+-- Delete any other profiles for this token to avoid duplicates
+DELETE FROM network_profiles 
+WHERE nft_token_id = '1';
+
+-- Insert sample profiles if needed
+INSERT INTO network_profiles (name, wallet_address, nft_token_id, positions) 
+VALUES 
+  ('TechKeyz Profile', NULL, '1', '{}');
+-- Add more sample profiles as needed
 
 -- Update the TechKeyz profile name for consistency
 UPDATE network_profiles 
 SET name = 'TechKeyz Profile'
-WHERE nft_token_id = '430';
+WHERE nft_token_id = '1';
 
 -- Remove the generic Profile 2 and Profile 3 entries since they'll be created dynamically
 DELETE FROM network_profiles 

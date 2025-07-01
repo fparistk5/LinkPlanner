@@ -166,79 +166,139 @@ export type Database = {
   }
 }
 
-// Notes CRUD
-export async function fetchNotes() {
-  const { data, error } = await supabase
-    .from('notes')
-    .select('*')
-    .order('created_at', { ascending: false })
-  if (error) throw error
-  return data
-}
-
-export async function addNote(title: string, description: string, note_group_id: string | null, group_id: string | null, link_id: string | null) {
-  const { data, error } = await supabase
-    .from('notes')
-    .insert([{ title, description, note_group_id, group_id, link_id }])
-    .select()
-  if (error) throw error
-  return data?.[0]
-}
-
-export async function updateNote(id: string, updates: { title?: string; description?: string; note_group_id?: string | null; group_id?: string | null; link_id?: string | null }) {
-  const { data, error } = await supabase
-    .from('notes')
-    .update(updates)
-    .eq('id', id)
-    .select()
-  if (error) throw error
-  return data?.[0]
-}
-
-export async function deleteNote(id: string) {
-  const { error } = await supabase
-    .from('notes')
-    .delete()
-    .eq('id', id)
-  if (error) throw error
-}
-
 // Note Groups CRUD
-export async function fetchNoteGroups() {
+export async function fetchNoteGroups(profileId: number) {
   const { data, error } = await supabase
     .from('note_groups')
     .select('*')
+    .eq('profile_id', profileId)
     .order('created_at', { ascending: true })
   if (error) throw error
   return data
 }
 
-export async function addNoteGroup(name: string, color: string) {
+export async function addNoteGroup(name: string, color: string, profileId: number) {
+  // Set the profile context first
+  try {
+    await supabase.rpc('set_profile_context', { profile_id: profileId });
+  } catch (contextError) {
+    console.warn('⚠️ Failed to set profile context, but continuing:', contextError);
+  }
+
   const { data, error } = await supabase
     .from('note_groups')
-    .insert([{ name, color }])
+    .insert([{ 
+      name, 
+      color,
+      profile_id: profileId // Explicitly set profile_id as fallback
+    }])
     .select()
     .single()
   if (error) throw error
   return data
 }
 
-export async function updateNoteGroup(id: string, updates: { name?: string; color?: string }) {
+export async function updateNoteGroup(id: string, updates: { name?: string; color?: string }, profileId: number) {
+  // Set the profile context first
+  try {
+    await supabase.rpc('set_profile_context', { profile_id: profileId });
+  } catch (contextError) {
+    console.warn('⚠️ Failed to set profile context, but continuing:', contextError);
+  }
+
   const { data, error } = await supabase
     .from('note_groups')
     .update(updates)
     .eq('id', id)
+    .eq('profile_id', profileId) // Ensure we only update notes from this profile
     .select()
     .single()
   if (error) throw error
   return data
 }
 
-export async function deleteNoteGroup(id: string) {
+export async function deleteNoteGroup(id: string, profileId: number) {
+  // Set the profile context first
+  try {
+    await supabase.rpc('set_profile_context', { profile_id: profileId });
+  } catch (contextError) {
+    console.warn('⚠️ Failed to set profile context, but continuing:', contextError);
+  }
+
   const { error } = await supabase
     .from('note_groups')
     .delete()
     .eq('id', id)
+    .eq('profile_id', profileId) // Ensure we only delete notes from this profile
+  if (error) throw error
+}
+
+// Notes CRUD
+export async function fetchNotes(profileId: number) {
+  const { data, error } = await supabase
+    .from('notes')
+    .select('*')
+    .eq('profile_id', profileId)
+    .order('created_at', { ascending: false })
+  if (error) throw error
+  return data
+}
+
+export async function addNote(title: string, description: string, note_group_id: string | null, group_id: string | null, link_id: string | null, profileId: number) {
+  // Set the profile context first
+  try {
+    await supabase.rpc('set_profile_context', { profile_id: profileId });
+  } catch (contextError) {
+    console.warn('⚠️ Failed to set profile context, but continuing:', contextError);
+  }
+
+  const { data, error } = await supabase
+    .from('notes')
+    .insert([{ 
+      title, 
+      description, 
+      note_group_id, 
+      group_id, 
+      link_id,
+      profile_id: profileId // Explicitly set profile_id as fallback
+    }])
+    .select()
+  if (error) throw error
+  return data?.[0]
+}
+
+export async function updateNote(id: string, updates: { title?: string; description?: string; note_group_id?: string | null; group_id?: string | null; link_id?: string | null }, profileId: number) {
+  // Set the profile context first
+  try {
+    await supabase.rpc('set_profile_context', { profile_id: profileId });
+  } catch (contextError) {
+    console.warn('⚠️ Failed to set profile context, but continuing:', contextError);
+  }
+
+  const { data, error } = await supabase
+    .from('notes')
+    .update(updates)
+    .eq('id', id)
+    .eq('profile_id', profileId) // Ensure we only update notes from this profile
+    .select()
+    .single()
+  if (error) throw error
+  return data
+}
+
+export async function deleteNote(id: string, profileId: number) {
+  // Set the profile context first
+  try {
+    await supabase.rpc('set_profile_context', { profile_id: profileId });
+  } catch (contextError) {
+    console.warn('⚠️ Failed to set profile context, but continuing:', contextError);
+  }
+
+  const { error } = await supabase
+    .from('notes')
+    .delete()
+    .eq('id', id)
+    .eq('profile_id', profileId) // Ensure we only delete notes from this profile
   if (error) throw error
 }
 
@@ -278,11 +338,13 @@ export async function addNetworkProfile(name: string, positions: any, walletAddr
   return data
 }
 
-export async function fetchGroups() {
+export async function fetchGroups(profileId: number) {
   const { data, error } = await supabase
     .from('groups')
     .select('*')
+    .eq('profile_id', profileId)
     .order('display_order', { ascending: true })
+  
   if (error) throw error
   return data
 }
@@ -339,21 +401,20 @@ export async function updateNetworkProfileExtended(id: number, updates: {
 export async function countProfilesByNFT(walletAddress: string, nftTokenId: string): Promise<number> {
   console.log('📊 Counting profiles for NFT:', { walletAddress, nftTokenId })
   
-  // Fetch all profiles for wallet and filter in JavaScript for more reliability
+  // For TechKeyz profile (token '1'), count all profiles regardless of wallet
+  // For other NFTs, only count profiles for the specific wallet
   const { data, error } = await supabase
     .from('network_profiles')
     .select('*')
-    .eq('wallet_address', walletAddress)
+    .eq('nft_token_id', nftTokenId)
+    .eq(nftTokenId !== '1' ? 'wallet_address' : 'nft_token_id', nftTokenId !== '1' ? walletAddress : nftTokenId)
   
   if (error) {
     console.error('❌ Error counting NFT profiles:', error)
     throw error
   }
   
-  // Filter for profiles with matching NFT token ID
-  const nftProfiles = data?.filter(profile => profile.nft_token_id === nftTokenId) || []
-  const count = nftProfiles.length
-  
+  const count = data?.length || 0
   console.log('📊 NFT profile count result:', count)
   return count
 }
@@ -372,26 +433,58 @@ export async function canCreateNewProfileForNFT(walletAddress: string, nftTokenI
 }
 
 export async function createEmptyProfileForNFT(walletAddress: string, nftTokenId: string, profileName: string): Promise<any> {
-  // Check if user can create a new profile for this specific NFT
-  const canCreate = await canCreateNewProfileForNFT(walletAddress, nftTokenId)
-  if (!canCreate) {
-    throw new Error(`Maximum of 3 profiles allowed per NFT (Token ID: ${nftTokenId})`)
-  }
+  try {
+    // Try to set the RLS context to null, but continue even if it fails
+    try {
+      await supabase.rpc('set_profile_context', { profile_id: null });
+    } catch (contextError) {
+      console.warn('⚠️ Failed to clear profile context, but continuing with profile creation:', contextError);
+    }
 
-  // Create the profile with empty data - no predefined links, notes, or groups
-  const { data, error } = await supabase
+    // Insert new profile with empty positions to ensure no inherited data
+    const { data: newProfile, error: profileError } = await supabase
     .from('network_profiles')
     .insert([{
       name: profileName,
       wallet_address: walletAddress,
       nft_token_id: nftTokenId,
-      positions: {}
+        positions: {} // Explicitly set to empty to prevent any inherited data
     }])
     .select()
-    .single()
+      .single();
   
-  if (error) throw error
-  return data
+    if (profileError) {
+      console.error('❌ Error creating new NFT profile:', profileError);
+      throw new Error(`Failed to create profile: ${profileError.message}`);
+    }
+
+    if (!newProfile) {
+      console.error('❌ No profile returned after creation');
+      throw new Error('Failed to create profile: No profile data returned');
+    }
+
+    console.log('✅ New NFT profile created:', newProfile);
+
+    // Try to set the RLS context to the new profile, but continue even if it fails
+    try {
+      await supabase.rpc('set_profile_context', { profile_id: newProfile.id });
+    } catch (contextError) {
+      console.warn('⚠️ Failed to set new profile context, but continuing with group creation:', contextError);
+    }
+
+    // Create a default group for the new profile
+  try {
+      await createDefaultGroupForProfile(newProfile.id);
+  } catch (groupError) {
+      console.warn('⚠️ Failed to create default group, but profile was created:', groupError);
+  }
+
+    // Return the new profile
+    return newProfile;
+  } catch (error) {
+    console.error('❌ Unexpected error creating NFT profile:', error);
+    throw error;
+  }
 }
 
 export async function getNextProfileNumberForNFT(walletAddress: string, nftTokenId: string): Promise<number> {
@@ -529,19 +622,35 @@ export async function createEmptyGeneralProfile(walletAddress: string, profileNa
   }
 
   // Create the profile with empty data
-  const { data, error } = await supabase
+  const { data: newProfile, error } = await supabase
     .from('network_profiles')
     .insert([{
       name: profileName,
       wallet_address: walletAddress,
       nft_token_id: null, // No NFT token ID for general profiles
-      positions: {} // Empty positions object
+      positions: {} // Explicitly set to empty to prevent any inherited data
     }])
     .select()
     .single()
   
   if (error) throw error
-  return data
+
+  // Create default group for the new profile
+  try {
+    await createDefaultGroupForProfile(newProfile.id)
+  } catch (groupError) {
+    console.warn('⚠️ Failed to create default group for profile, but profile was created:', groupError)
+  }
+
+  // Ensure no inherited data from TechKeyz or other profiles (check for database triggers)
+  // NOTE: If links or data are still inherited, check Supabase dashboard for database triggers or policies
+  // that might be copying data from TechKeyz profile (e.g., id 1 or name 'TechKeyz Profile')
+  if (newProfile.positions && Object.keys(newProfile.positions).length > 0) {
+    console.warn('⚠️ New profile has non-empty positions, resetting to empty');
+    await updateNetworkProfile(newProfile.id, { positions: {} });
+  }
+
+  return newProfile
 }
 
 export async function getNextGeneralProfileNumber(walletAddress: string): Promise<number> {
@@ -562,4 +671,158 @@ export async function fetchGeneralProfilesByWallet(walletAddress: string) {
   // Filter for profiles with no NFT token ID (general profiles)
   const generalProfiles = data?.filter(profile => !profile.nft_token_id) || []
   return generalProfiles
+}
+
+// Function to create default group for new profiles
+export async function createDefaultGroupForProfile(profileId: number): Promise<void> {
+  console.log('🎯 Creating default group for profile:', profileId)
+  
+  try {
+    // Try to set the profile context, but continue even if it fails
+    try {
+      await supabase.rpc('set_profile_context', { profile_id: profileId });
+    } catch (contextError) {
+      console.warn('⚠️ Failed to set profile context, but continuing with group creation:', contextError);
+    }
+
+    // Create the default group with explicit profile_id
+  const { error } = await supabase
+    .from('groups')
+    .insert([{
+      name: 'new group',
+      color: '#3b82f6',
+      display_order: 1,
+      note_group_id: null,
+        parent_group_id: null,
+        profile_id: profileId // Explicitly set the profile_id
+    }])
+  
+  if (error) {
+      // If insert fails, try without RLS
+      console.warn('⚠️ Failed to create group with RLS, attempting without profile context:', error);
+      
+      // Clear the profile context
+      try {
+        await supabase.rpc('set_profile_context', { profile_id: null });
+      } catch (clearError) {
+        console.warn('⚠️ Failed to clear profile context:', clearError);
+      }
+      
+      // Retry the insert
+      const { error: retryError } = await supabase
+        .from('groups')
+        .insert([{
+          name: 'new group',
+          color: '#3b82f6',
+          display_order: 1,
+          note_group_id: null,
+          parent_group_id: null,
+          profile_id: profileId
+        }])
+      
+      if (retryError) {
+        console.error('❌ Error creating default group on retry:', retryError);
+        throw retryError;
+      }
+    }
+    
+    console.log('✅ Default group "new group" created successfully for profile:', profileId)
+  } catch (error) {
+    console.error('❌ Error creating default group:', error)
+    throw error
+  }
+}
+
+// Email Alerts CRUD
+export async function fetchEmailAlerts(profileId: number) {
+  const { data, error } = await supabase
+    .from('email_alerts')
+    .select('*')
+    .eq('profile_id', profileId)
+    .order('scheduled_time', { ascending: true })
+  if (error) throw error
+  return data
+}
+
+export async function addEmailAlert(
+  email: string,
+  recipient: string,
+  scheduled_time: string,
+  group_id: string | null,
+  link_id: string | null,
+  note_id: string | null,
+  note_group_id: string | null,
+  profileId: number
+) {
+  // Set the profile context first
+  try {
+    await supabase.rpc('set_profile_context', { profile_id: profileId });
+  } catch (contextError) {
+    console.warn('⚠️ Failed to set profile context, but continuing:', contextError);
+  }
+
+  const { data, error } = await supabase
+    .from('email_alerts')
+    .insert([{
+      email,
+      recipient,
+      scheduled_time,
+      group_id,
+      link_id,
+      note_id,
+      note_group_id,
+      profile_id: profileId // Explicitly set profile_id as fallback
+    }])
+    .select()
+    .single()
+  if (error) throw error
+  return data
+}
+
+export async function updateEmailAlert(
+  id: string,
+  updates: {
+    email?: string;
+    recipient?: string;
+    scheduled_time?: string;
+    group_id?: string | null;
+    link_id?: string | null;
+    note_id?: string | null;
+    note_group_id?: string | null;
+    sent?: boolean;
+  },
+  profileId: number
+) {
+  // Set the profile context first
+  try {
+    await supabase.rpc('set_profile_context', { profile_id: profileId });
+  } catch (contextError) {
+    console.warn('⚠️ Failed to set profile context, but continuing:', contextError);
+  }
+
+  const { data, error } = await supabase
+    .from('email_alerts')
+    .update(updates)
+    .eq('id', id)
+    .eq('profile_id', profileId) // Ensure we only update alerts from this profile
+    .select()
+    .single()
+  if (error) throw error
+  return data
+}
+
+export async function deleteEmailAlert(id: string, profileId: number) {
+  // Set the profile context first
+  try {
+    await supabase.rpc('set_profile_context', { profile_id: profileId });
+  } catch (contextError) {
+    console.warn('⚠️ Failed to set profile context, but continuing:', contextError);
+  }
+
+  const { error } = await supabase
+    .from('email_alerts')
+    .delete()
+    .eq('id', id)
+    .eq('profile_id', profileId) // Ensure we only delete alerts from this profile
+  if (error) throw error
 } 

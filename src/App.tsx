@@ -4,9 +4,9 @@ import { GraphView } from './components/GraphView'
 import { EmailStatus } from './components/EmailStatus'
 import { EmailSetupInstructions } from './components/EmailSetupInstructions'
 import { EmailTestButton } from './utils/emailTestButton'
-import { WalletAuth } from './components/WalletAuth'
+import { WalletAuth, CompactWalletAuth } from './components/WalletAuth'
 import { ProfileSelector, NFTProfileSelector, GeneralProfileSelector, SavedProfileSelector } from './components/ProfileSelector'
-import { fetchNetworkProfiles, updateNetworkProfile, updateGroupOrder, fetchNetworkProfilesByWallet, fetchAllUserProfilesForWallet, fetchGeneralProfilesByWallet } from './config/supabase'
+import { fetchNetworkProfiles, updateNetworkProfile, updateGroupOrder, fetchNetworkProfilesByWallet, fetchAllUserProfilesForWallet, fetchGeneralProfilesByWallet, addEmailAlert, deleteEmailAlert } from './config/supabase'
 import type { Database } from './config/supabase'
 import { supabase } from './config/supabase'
 
@@ -27,11 +27,14 @@ function getFirstDayOfWeek(year: number, month: number) {
 }
 
 function App() {
+  const [activeProfile, setActiveProfile] = useState<number | null>(null)
+  const [isProfileSwitching, setIsProfileSwitching] = useState(false)
+  
   const {
     links,
     groups,
     networkConnections,
-    loading,
+    loading: dataLoading,
     error,
     addLink,
     updateLink,
@@ -43,10 +46,11 @@ function App() {
     deleteNetworkConnection,
     setLinks,
     setGroups
-  } = useSupabaseData()
+  } = useSupabaseData(activeProfile)
 
-  const { notes, loading: notesLoading, error: notesError, createNote, editNote, removeNote, reload: reloadNotes } = useNotes()
-  const { noteGroups, loading: noteGroupsLoading, createNoteGroup, editNoteGroup, removeNoteGroup } = useNoteGroups()
+  // Use hooks with profile ID
+  const { notes, loading: notesLoading, error: notesError, createNote, editNote, removeNote, reload: reloadNotes } = useNotes(activeProfile || 1)
+  const { noteGroups, loading: noteGroupsLoading, error: noteGroupsError, createNoteGroup, editNoteGroup, removeNoteGroup, reload: reloadNoteGroups } = useNoteGroups(activeProfile || 1)
 
   const [newLink, setNewLink] = useState<{ title: string; url: string; group_id?: string; note_group_id?: string; color?: string }>({ 
     title: '', 
@@ -79,7 +83,6 @@ function App() {
   const [selectedLink, setSelectedLink] = useState<Link | null>(null)
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null)
   const [titleFontSize, setTitleFontSize] = useState(12)
-  const [activeProfile, setActiveProfile] = useState<number | null>(null)
   const [networkProfiles, setNetworkProfiles] = useState<any[]>([])
   const [currentUserProfile, setCurrentUserProfile] = useState<any>(null)
   const [ownedNFTs, setOwnedNFTs] = useState<{ id: string; name: string }[]>([])
@@ -124,8 +127,10 @@ function App() {
     
     // 🔐 SECURITY CHECK: Must have NFT ownership to add links
     if (!canEditProfile()) {
-      console.log('🚫 Add link blocked: No NFT ownership')
-      alert('⚠️ You need to own a qualifying NFT to add links.')
+      const currentProfile = getProfile(activeProfile)
+      const requiredToken = currentProfile?.nft_token_id
+      console.log('🚫 Add link blocked: Insufficient token access')
+      alert(`⚠️ Access Denied: You must own ${requiredToken ? `NFT Token ID ${requiredToken}` : 'a qualifying NFT'} to add links to this profile.`)
       return
     }
     
@@ -145,8 +150,10 @@ function App() {
   const handleDeleteLink = async (id: string) => {
     // 🔐 SECURITY CHECK: Must have NFT ownership to delete links
     if (!canEditProfile()) {
-      console.log('🚫 Delete link blocked: No NFT ownership')
-      alert('⚠️ You need to own a qualifying NFT to delete links.')
+      const currentProfile = getProfile(activeProfile)
+      const requiredToken = currentProfile?.nft_token_id
+      console.log('🚫 Delete link blocked: Insufficient token access')
+      alert(`⚠️ Access Denied: You must own ${requiredToken ? `NFT Token ID ${requiredToken}` : 'a qualifying NFT'} to delete links from this profile.`)
       return
     }
     
@@ -400,7 +407,7 @@ function App() {
         <form
           onSubmit={async e => {
             e.preventDefault()
-                                    await secureEditNote(note.id, {
+                                    await editNote(note.id, {
                           ...editNoteValue,
                           note_group_id: editNoteValue.note_group_id === '' ? null : editNoteValue.note_group_id,
                           group_id: editNoteValue.group_id === '' ? null : editNoteValue.group_id,
@@ -485,7 +492,7 @@ function App() {
               setEditingNote(note)
               setEditNoteValue({ title: note.title, description: note.description, note_group_id: note.note_group_id || '', group_id: note.group_id || '', link_id: note.link_id || '' })
             }}>Edit</button>
-                                    <button className="button cancel-button" style={{ fontSize: 12 }} onClick={() => secureRemoveNote(note.id)}>Delete</button>
+                                    <button className="button cancel-button" style={{ fontSize: 12 }} onClick={() => removeNote(note.id)}>Delete</button>
           </div>
         </>
       )}
@@ -944,28 +951,37 @@ function App() {
     }
   }
 
-  const handleProfileSelect = (profileId: number) => {
+  const handleProfileSelect = async (profileId: number) => {
     console.log('🎯 Profile Selection:', { profileId, available: networkProfiles.map(p => ({ id: p.id, name: p.name })) })
     
-    setActiveProfile(profileId)
     const profile = networkProfiles.find(p => p.id === profileId)
-    
-    if (profile) {
-      console.log('✅ Profile found and setting as current:', { id: profile.id, name: profile.name })
-      setCurrentUserProfile(profile)
-    } else {
+    if (!profile) {
       console.error('❌ Profile not found for ID:', profileId)
+      return
     }
     
-    // The GraphView component will handle loading the positions on profile change
+    setIsProfileSwitching(true)
+    try {
+      console.log('✅ Profile found and setting as current:', { id: profile.id, name: profile.name })
+      setActiveProfile(profileId)
+      setCurrentUserProfile(profile)
+    } finally {
+      // Small delay to ensure UI updates smoothly
+      setTimeout(() => setIsProfileSwitching(false), 100)
+    }
   }
 
-  const handleProfileCreated = () => {
-    // Reload profiles when a new one is created
-    if (connectedWalletAddress) {
-      loadUserProfiles(connectedWalletAddress)
-    } else {
-      loadGlobalProfiles()
+  const handleProfileCreated = async () => {
+    setIsProfileSwitching(true)
+    try {
+      // Reload profiles when a new one is created
+      if (connectedWalletAddress) {
+        await loadUserProfiles(connectedWalletAddress)
+      } else {
+        await loadGlobalProfiles()
+      }
+    } finally {
+      setIsProfileSwitching(false)
     }
   }
 
@@ -1003,9 +1019,14 @@ function App() {
       const globalProfiles = await fetchNetworkProfiles()
       setNetworkProfiles(globalProfiles)
       
-      if (globalProfiles.length > 0) {
-        // Auto-select TechKeyz profile or first available
-        const techKeyzProfile = globalProfiles.find(p => p.name === 'TechKeyz Profile' || p.id === 1)
+      // Only auto-select if no profile is currently selected
+      if (globalProfiles.length > 0 && !activeProfile) {
+        // Find TechKeyz profile consistently
+        const techKeyzProfile = globalProfiles.find(p => 
+          p.name === 'TechKeyz Profile' || 
+          p.nft_token_id === '1' || 
+          p.id === 1
+        )
         const selectedProfile = techKeyzProfile || globalProfiles[0]
         setActiveProfile(selectedProfile.id)
         setCurrentUserProfile(selectedProfile)
@@ -1019,95 +1040,115 @@ function App() {
 
   const loadUserProfiles = async (walletAddress: string) => {
     try {
-      // Load both global profiles AND user-specific profiles (across all their NFTs)
+      // Load both global profiles AND user-specific profiles
       const [globalProfiles, userProfiles] = await Promise.all([
-        fetchNetworkProfiles(), // All existing profiles (including TechKeyz)
-        fetchAllUserProfilesForWallet(walletAddress) // User's specific profiles across all NFTs
+        fetchNetworkProfiles(),
+        fetchAllUserProfilesForWallet(walletAddress)
       ])
       
-      console.log('📊 Profile Loading Results:', {
-        walletAddress,
-        globalProfiles: globalProfiles.length,
-        userProfiles: userProfiles.length,
-        userProfileDetails: userProfiles.map(p => ({ id: p.id, name: p.name, wallet: p.wallet_address })),
-        globalProfileDetails: globalProfiles.map(p => ({ id: p.id, name: p.name, wallet: p.wallet_address }))
-      })
+      // Find TechKeyz profile consistently
+      const techKeyzProfile = globalProfiles.find(p => 
+        p.name === 'TechKeyz Profile' || 
+        p.nft_token_id === '430' || 
+        p.id === 1
+      )
       
-      // Combine profiles, removing duplicates (user profiles override global ones with same ID)
+      // Combine profiles, ensuring TechKeyz is always included
       const userProfileIds = new Set(userProfiles.map(p => p.id))
       const combinedProfiles = [
-        ...userProfiles, // User profiles first (priority)
-        ...globalProfiles.filter(p => !userProfileIds.has(p.id)) // Global profiles that aren't overridden
+        ...(techKeyzProfile ? [techKeyzProfile] : []), // Always include TechKeyz first if it exists
+        ...userProfiles, // Then user profiles
+        ...globalProfiles.filter(p => // Then other global profiles
+          !userProfileIds.has(p.id) && 
+          (!techKeyzProfile || p.id !== techKeyzProfile.id)
+        )
       ]
       
       setNetworkProfiles(combinedProfiles)
       
-      // Auto-select profile: prefer TechKeyz, then user's first profile, then any first profile
-      if (combinedProfiles.length > 0) {
-        const techKeyzProfile = combinedProfiles.find(p => p.name === 'TechKeyz Profile' || p.nft_token_id === '430')
-        const userFirstProfile = userProfiles[0]
-        const selectedProfile = techKeyzProfile || userFirstProfile || combinedProfiles[0]
-        
+      // Only auto-select if no profile is currently selected
+      if (combinedProfiles.length > 0 && !activeProfile) {
+        const selectedProfile = techKeyzProfile || userProfiles[0] || combinedProfiles[0]
         setActiveProfile(selectedProfile.id)
         setCurrentUserProfile(selectedProfile)
-        
         console.log(`✅ Loaded ${combinedProfiles.length} profiles, selected: ${selectedProfile.name}`)
       }
     } catch (error) {
       console.error('Error loading user profiles:', error)
       // Fallback to just global profiles
-      try {
-        const globalProfiles = await fetchNetworkProfiles()
-        setNetworkProfiles(globalProfiles)
-        if (globalProfiles.length > 0) {
-          const techKeyzProfile = globalProfiles.find(p => p.name === 'TechKeyz Profile' || p.id === 1)
-          const selectedProfile = techKeyzProfile || globalProfiles[0]
-          setActiveProfile(selectedProfile.id)
-          setCurrentUserProfile(selectedProfile)
-        }
-      } catch (fallbackError) {
-        console.error('Error loading fallback profiles:', fallbackError)
-      }
+      loadGlobalProfiles()
     }
   }
 
   const canEditProfile = () => {
-    // Strict authentication: must be connected, have NFTs, and own the profile
-    if (!isAuthenticated || !connectedWalletAddress || !hasNFTs) {
-      console.log('🚫 Edit blocked:', {
-        isAuthenticated,
-        connectedWalletAddress: !!connectedWalletAddress,
-        hasNFTs,
-        reason: !isAuthenticated ? 'Not authenticated' : !connectedWalletAddress ? 'No wallet' : 'No NFTs'
-      })
+    // Must be authenticated and connected
+    if (!isAuthenticated || !connectedWalletAddress) {
+      console.log('🚫 Access denied: Not authenticated or no wallet connected')
       return false
     }
     
     const currentProfile = getProfile(activeProfile)
-    
-    // Handle demo mode or when wallet_address column doesn't exist
-    if (!currentProfile?.wallet_address) {
-      // Even in demo mode, require NFT ownership
-      console.log('✅ Demo mode edit allowed - NFT verified')
-      return hasNFTs
+    if (!currentProfile) {
+      console.log('🚫 Access denied: No active profile selected')
+      return false
     }
     
-    // Must own both the profile AND have NFTs
-    const canEdit = currentProfile.wallet_address === connectedWalletAddress && hasNFTs
-    console.log('🔐 Profile edit check:', {
-      profileOwner: currentProfile.wallet_address,
-      connectedWallet: connectedWalletAddress,
-      hasNFTs,
-      canEdit
-    })
-    return canEdit
+    // 🔐 TOKEN-BASED ACCESS CONTROL
+    // Check specific token ownership for profile access
+    
+    if (currentProfile.nft_token_id) {
+      // Profile is associated with a specific NFT token
+      const ownsRequiredToken = ownedNFTs.some(nft => nft.id === currentProfile.nft_token_id)
+      
+      if (!ownsRequiredToken) {
+        console.log('🚫 Access denied: User does not own required NFT token', {
+          requiredTokenId: currentProfile.nft_token_id,
+          userTokens: ownedNFTs.map(nft => nft.id),
+          profileName: currentProfile.name
+        })
+        return false
+      }
+      
+      // For user-owned profiles, also verify wallet ownership
+      if (currentProfile.wallet_address && currentProfile.wallet_address !== connectedWalletAddress) {
+        console.log('🚫 Access denied: Profile belongs to different wallet', {
+          profileOwner: currentProfile.wallet_address,
+          connectedWallet: connectedWalletAddress
+        })
+        return false
+      }
+      
+      console.log('✅ Access granted: User owns required NFT token', {
+        tokenId: currentProfile.nft_token_id,
+        profileName: currentProfile.name
+      })
+      return true
+    }
+    
+    // Profile is a general profile (no specific token) - check wallet ownership
+    if (currentProfile.wallet_address) {
+      const canEdit = currentProfile.wallet_address === connectedWalletAddress && hasNFTs
+      console.log('🔐 General profile access check:', {
+        profileOwner: currentProfile.wallet_address,
+        connectedWallet: connectedWalletAddress,
+        hasNFTs,
+        canEdit
+      })
+      return canEdit
+    }
+    
+    // Global profile (TechKeyz) - no wallet owner, check if user has any NFTs
+    console.log('🔐 Global profile access - requiring NFT ownership for system changes')
+    return hasNFTs
   }
 
   // 🔐 SECURE WRAPPER FUNCTIONS - All edit operations go through these
   const secureEditNote = async (id: string, updates: any) => {
     if (!canEditProfile()) {
-      console.log('🚫 Edit note blocked: No NFT ownership')
-      alert('⚠️ You need to own a qualifying NFT to edit notes.')
+      const currentProfile = getProfile(activeProfile)
+      const requiredToken = currentProfile?.nft_token_id
+      console.log('🚫 Edit note blocked: Insufficient token access')
+      alert(`⚠️ Access Denied: You must own ${requiredToken ? `NFT Token ID ${requiredToken}` : 'a qualifying NFT'} to edit notes in this profile.`)
       return
     }
     try {
@@ -1212,11 +1253,53 @@ function App() {
     }
   }
 
-  useEffect(() => {
-    if (!noteGroupsLoading && noteGroups.length === 0) {
-      createNoteGroup('General', '#3b82f6')
+  // 🔐 SECURE CREATE FUNCTIONS - All create operations go through these
+  const secureAddGroup = async (name: string, color: string, noteGroupId?: string | null, parentGroupId?: string | null | undefined) => {
+    if (!canEditProfile()) {
+      console.log('🚫 Add group blocked: No NFT ownership')
+      alert('⚠️ You need to own a qualifying NFT to create groups.')
+      return
     }
-  }, [noteGroupsLoading, noteGroups, createNoteGroup])
+    try {
+      await addGroup(name, color, noteGroupId, parentGroupId || null)
+      console.log('✅ Group created successfully')
+    } catch (err) {
+      console.error('Error creating group:', err)
+      alert('Failed to create group')
+    }
+  }
+
+  const secureCreateNote = async (title: string, description: string, noteGroupId?: string | null | undefined, groupId?: string | null | undefined, linkId?: string | null | undefined) => {
+    if (!canEditProfile()) {
+      console.log('🚫 Create note blocked: No NFT ownership')
+      alert('⚠️ You need to own a qualifying NFT to create notes.')
+      return
+    }
+    try {
+      await createNote(title, description, noteGroupId || null, groupId || null, linkId || null)
+      await reloadNotes()
+      console.log('✅ Note created successfully')
+    } catch (err) {
+      console.error('Error creating note:', err)
+      alert('Failed to create note')
+    }
+  }
+
+  const secureCreateNoteGroup = async (name: string, color: string) => {
+    if (!canEditProfile()) {
+      console.log('🚫 Create note group blocked: No NFT ownership')
+      alert('⚠️ You need to own a qualifying NFT to create note groups.')
+      return
+    }
+    try {
+      await createNoteGroup(name, color)
+      await reloadNoteGroups()
+      console.log('✅ Note group created successfully')
+    } catch (err) {
+      console.error('Error creating note group:', err)
+      alert('Failed to create note group')
+    }
+  }
 
   // Auto-populate email alert form when a note is selected
   useEffect(() => {
@@ -1267,13 +1350,14 @@ function App() {
     initializeProfiles()
   }, [])
 
-  // Load email alerts from Supabase on mount
+  // Load email alerts from Supabase on mount and when profile changes
   useEffect(() => {
     const loadEmailAlerts = async () => {
       try {
         const { data: alerts, error } = await supabase
           .from('email_alerts')
           .select('*')
+          .eq('profile_id', activeProfile || 1)
           .order('created_at', { ascending: false })
 
         if (error) {
@@ -1281,7 +1365,7 @@ function App() {
           return
         }
 
-        if (alerts && alerts.length > 0) {
+        if (alerts) {
           // Transform Supabase data to match the local state format
           const transformedAlerts = alerts.map(alert => ({
             id: alert.id, // Include database ID for deletion
@@ -1305,7 +1389,7 @@ function App() {
     }
 
     loadEmailAlerts()
-  }, [])
+  }, [activeProfile])
 
   // Check for scheduled emails every minute
   useEffect(() => {
@@ -1542,29 +1626,118 @@ function App() {
     setDragOverGroupId(null);
   };
 
-  if (loading) {
-    return <div className="loading">Loading...</div>
-  }
-
-  if (error) {
-    return <div className="error">Error: {error}</div>
+  if (dataLoading || isProfileSwitching) {
+    return (
+      <div style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        backgroundColor: 'rgba(0, 0, 0, 0.5)',
+        display: 'flex',
+        justifyContent: 'center',
+        alignItems: 'center',
+        zIndex: 9999
+      }}>
+        <div style={{
+          backgroundColor: '#1f2937',
+          padding: '20px',
+          borderRadius: '8px',
+          color: 'white'
+        }}>
+          Loading...
+        </div>
+      </div>
+    )
   }
 
   return (
     <div className="min-h-screen bg-gray-100">
     <div className="app">
-      <header className="app-header">
-        <h1>Web Organization Planner</h1>
+      <header className="app-header" style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        padding: '16px 24px'
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+          <h1 style={{ margin: 0 }}>Web Organization Planner</h1>
+          
+          {/* 🔐 PROFILE ACCESS INDICATOR */}
+          {activeProfile && (
+            <div style={{
+              padding: '4px 12px',
+              borderRadius: '6px',
+              backgroundColor: canEditProfile() ? '#065f46' : '#7f1d1d',
+              border: `1px solid ${canEditProfile() ? '#10b981' : '#dc2626'}`,
+              color: '#ffffff',
+              fontSize: '12px',
+              fontWeight: '500'
+            }}>
+              {(() => {
+                const currentProfile = getProfile(activeProfile)
+                if (!currentProfile) return '❌ No Profile'
+                
+                if (canEditProfile()) {
+                  return `🔐 Active: ${currentProfile.name}${currentProfile.nft_token_id ? ` (Token ${currentProfile.nft_token_id})` : ''}`
+                } else {
+                  const requiredToken = currentProfile.nft_token_id
+                  return `🔒 Read-Only: ${currentProfile.name}${requiredToken ? ` (Need Token ${requiredToken})` : ''}`
+                }
+              })()}
+            </div>
+          )}
+        </div>
+        
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          {/* NFT Profile Selector Container */}
+          <div style={{ 
+            position: 'relative',
+            background: '#334155', 
+            border: '1px solid #475569', 
+            borderRadius: '6px', 
+            padding: '4px',
+            zIndex: 1000
+          }}>
+            <NFTProfileSelector 
+              connectedWallet={connectedWalletAddress}
+              ownedNFTs={ownedNFTs}
+              onProfileSelect={handleProfileSelect}
+              currentProfile={currentUserProfile}
+              hasNFTs={hasNFTs}
+              allProfiles={networkProfiles}
+              onProfileCreated={handleProfileCreated}
+            />
+          </div>
+          
+          {/* Saved Profile Selector Container */}
+          <div style={{ 
+            position: 'relative',
+            background: '#334155', 
+            border: '1px solid #475569', 
+            borderRadius: '6px', 
+            padding: '4px',
+            zIndex: 1000
+          }}>
+            <SavedProfileSelector 
+              connectedWallet={connectedWalletAddress}
+              ownedNFTs={ownedNFTs}
+              onProfileSelect={handleProfileSelect}
+              currentProfile={currentUserProfile}
+              hasNFTs={hasNFTs}
+              allProfiles={networkProfiles}
+              onProfileCreated={handleProfileCreated}
+            />
+          </div>
+          
+          <CompactWalletAuth 
+            onProfileLoad={handleProfileSelect}
+            currentProfile={getProfile(activeProfile)}
+            onAuthChange={handleAuthChange}
+          />
+        </div>
       </header>
-      
-      {/* Wallet Authentication */}
-      <div style={{ padding: '16px', maxWidth: '1200px', margin: '0 auto' }}>
-        <WalletAuth 
-          onProfileLoad={handleProfileSelect}
-          currentProfile={getProfile(activeProfile)}
-          onAuthChange={handleAuthChange}
-        />
-      </div>
       
       <main className="app-main">
         <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap', alignItems: 'flex-start' }}>
@@ -1578,7 +1751,7 @@ function App() {
             maxWidth: 600
           }}>
             <h2 style={{ color: '#ffffff' }}>Notes</h2>
-            <div style={{ marginBottom: 16 }}>
+            <div style={{ marginBottom: 0 }}>
               <input
                 type="text"
                 placeholder="Search notes..."
@@ -1804,7 +1977,7 @@ function App() {
                   }
                   
                   try {
-                    await createNoteGroup(newNoteGroup.name, newNoteGroup.color)
+                    await secureCreateNoteGroup(newNoteGroup.name, newNoteGroup.color)
                     setNewNoteGroup({ name: '', color: '#3b82f6' })
                     setIsAddingNoteGroup(false)
                     console.log('✅ Note group created successfully')
@@ -1850,7 +2023,7 @@ function App() {
                   }
                   
                   try {
-                    await createNote(
+                    await secureCreateNote(
                       newNote.title,
                       newNote.description,
                       newNote.note_group_id === '' ? null : newNote.note_group_id,
@@ -2026,12 +2199,17 @@ function App() {
                   // Save to Supabase (cloud database) first to get the ID
                   let savedAlert = null;
                   try {
-                    const { data, error } = await supabase
-                      .from('email_alerts')
-                      .insert([{ ...newAlertData, sent: emailSent }])
-                      .select()
-                      .single();
-                    if (error) throw error;
+                    const data = await addEmailAlert(
+                      newAlertData.email,
+                      newAlertData.recipient,
+                      newAlertData.scheduled_time,
+                      newAlertData.group_id,
+                      newAlertData.link_id,
+                      newAlertData.note_id,
+                      newAlertData.note_group_id,
+                      activeProfile || 1
+                    );
+                    if (!data) throw new Error('Failed to save email alert');
                     savedAlert = data;
                     console.log('✅ Email alert saved to Supabase:', data);
                   } catch (error) {
@@ -2191,16 +2369,7 @@ function App() {
                         // Remove from database if it has an ID
                         if (alert.id) {
                           try {
-                            const { error } = await supabase
-                              .from('email_alerts')
-                              .delete()
-                              .eq('id', alert.id)
-                            
-                            if (error) {
-                              console.error('Error deleting email alert from database:', error)
-                              alert('Failed to delete alert from database')
-                              return
-                            }
+                            await deleteEmailAlert(alert.id, activeProfile || 1)
                             console.log('✅ Email alert deleted from database')
                           } catch (error) {
                             console.error('Error deleting email alert:', error)
@@ -2321,7 +2490,7 @@ function App() {
                       
                       if (newGroup.name.trim()) {
                         try {
-                          await addGroup(newGroup.name, newGroup.color, null, newGroup.parent_group_id || null)
+                          await secureAddGroup(newGroup.name, newGroup.color, null, newGroup.parent_group_id || null)
                           setNewGroup({ name: '', color: '#3b82f6', parent_group_id: '' })
                           setIsAddingGroup(false)
                           setIsAddingSubgroup(false)
@@ -3003,38 +3172,7 @@ function App() {
           background: '#23272f'
         }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-              <h2 style={{ color: '#ffffff', margin: 0 }}>Network Graph</h2>
-              <div style={{ display: 'flex', gap: '8px' }}>
-                <NFTProfileSelector 
-                  connectedWallet={connectedWalletAddress}
-                  ownedNFTs={ownedNFTs}
-                  onProfileSelect={handleProfileSelect}
-                  currentProfile={currentUserProfile}
-                  hasNFTs={hasNFTs}
-                  allProfiles={networkProfiles}
-                  onProfileCreated={handleProfileCreated}
-                />
-                <GeneralProfileSelector 
-                  connectedWallet={connectedWalletAddress}
-                  ownedNFTs={ownedNFTs}
-                  onProfileSelect={handleProfileSelect}
-                  currentProfile={currentUserProfile}
-                  hasNFTs={hasNFTs}
-                  allProfiles={networkProfiles}
-                  onProfileCreated={handleProfileCreated}
-                />
-                <SavedProfileSelector 
-                  connectedWallet={connectedWalletAddress}
-                  ownedNFTs={ownedNFTs}
-                  onProfileSelect={handleProfileSelect}
-                  currentProfile={currentUserProfile}
-                  hasNFTs={hasNFTs}
-                  allProfiles={networkProfiles}
-                  onProfileCreated={handleProfileCreated}
-                />
-              </div>
-            </div>
+            <h2 style={{ color: '#ffffff', margin: 0 }}>Network Graph</h2>
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
               <label style={{ color: '#ffffff', fontSize: '14px' }}>
                 Title Size:

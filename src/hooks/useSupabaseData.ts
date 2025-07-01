@@ -41,63 +41,88 @@ interface UseSupabaseDataReturn {
   reload: () => Promise<void>
 }
 
-export function useSupabaseData(): UseSupabaseDataReturn {
+export function useSupabaseData(profileId?: number | null): UseSupabaseDataReturn {
   const [links, setLinks] = useState<Link[]>([])
   const [groups, setGroups] = useState<Group[]>([])
   const [networkConnections, setNetworkConnections] = useState<NetworkConnection[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [isInitialLoad, setIsInitialLoad] = useState(true)
 
   // Fetch initial data
   useEffect(() => {
+    let isMounted = true
+    
     async function fetchData() {
-      try {
+      // Don't set loading state if this is not the initial load
+      if (isInitialLoad) {
         setLoading(true)
-        setError(null)
+      }
+      setError(null)
 
-        // Fetch links
-        const { data: linksData, error: linksError } = await supabase
+      try {
+        let linksQuery = supabase
           .from('links')
           .select('*')
           .order('created_at', { ascending: true })
 
-        if (linksError) throw linksError
-        setLinks(linksData || [])
-
-        // Fetch groups
-        const { data: groupsData, error: groupsError } = await supabase
+        let groupsQuery = supabase
           .from('groups')
           .select('*')
           .order('created_at', { ascending: true })
 
-        if (groupsError) throw groupsError
-        setGroups(groupsData.map(group => ({
+        // Add profile_id filter if provided
+        if (profileId) {
+          linksQuery = linksQuery.eq('profile_id', profileId)
+          groupsQuery = groupsQuery.eq('profile_id', profileId)
+        }
+
+        // Fetch data in parallel
+        const [linksResult, groupsResult, connectionsResult] = await Promise.all([
+          linksQuery,
+          groupsQuery,
+          supabase.from('network_connections').select('*')
+        ])
+
+        if (!isMounted) return
+
+        // Handle errors
+        if (linksResult.error) throw linksResult.error
+        if (groupsResult.error) throw groupsResult.error
+        if (connectionsResult.error) throw connectionsResult.error
+
+        // Update state only if component is still mounted
+        setLinks(linksResult.data || [])
+        setGroups(groupsResult.data?.map(group => ({
           ...group,
           display_order: group.display_order || 0
-        })))
-
-        // Fetch network connections
-        const { data: connectionsData, error: connectionsError } = await supabase
-          .from('network_connections')
-          .select('*')
-
-        if (connectionsError) throw connectionsError
-        setNetworkConnections(connectionsData || [])
-
+        })) || [])
+        setNetworkConnections(connectionsResult.data || [])
+        
       } catch (err) {
+        if (!isMounted) return
         console.error('Error fetching data:', err)
         setError(err instanceof Error ? err.message : 'An error occurred while fetching data')
       } finally {
-        setLoading(false)
+        if (isMounted) {
+          setLoading(false)
+          setIsInitialLoad(false)
+        }
       }
     }
 
     fetchData()
 
-    // Set up real-time subscriptions with optimistic updates
+    // Set up real-time subscriptions with optimistic updates and profile filtering
     const linksSubscription = supabase
       .channel('links_changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'links' }, payload => {
+      .on('postgres_changes', { 
+        event: '*', 
+        schema: 'public', 
+        table: 'links',
+        filter: profileId ? `profile_id=eq.${profileId}` : undefined
+      }, payload => {
+        if (!isMounted) return
         console.log('Links change:', payload)
         if (payload.eventType === 'INSERT') {
           setLinks(prev => [...prev, payload.new as Link])
@@ -109,13 +134,17 @@ export function useSupabaseData(): UseSupabaseDataReturn {
           setLinks(prev => prev.filter(link => link.id !== payload.old.id))
         }
       })
-      .subscribe((status) => {
-        console.log('Links subscription status:', status)
-      })
+      .subscribe()
 
     const groupsSubscription = supabase
       .channel('groups_changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'groups' }, payload => {
+      .on('postgres_changes', { 
+        event: '*', 
+        schema: 'public', 
+        table: 'groups',
+        filter: profileId ? `profile_id=eq.${profileId}` : undefined
+      }, payload => {
+        if (!isMounted) return
         console.log('Groups change:', payload)
         if (payload.eventType === 'INSERT') {
           setGroups(prev => [...prev, payload.new as Group])
@@ -127,34 +156,20 @@ export function useSupabaseData(): UseSupabaseDataReturn {
           setGroups(prev => prev.filter(group => group.id !== payload.old.id))
         }
       })
-      .subscribe((status) => {
-        console.log('Groups subscription status:', status)
-      })
+      .subscribe()
 
-    const connectionsSubscription = supabase
-      .channel('network_connections_changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'network_connections' }, payload => {
-        console.log('Connections change:', payload)
-        if (payload.eventType === 'INSERT') {
-          setNetworkConnections(prev => [...prev, payload.new as NetworkConnection])
-        } else if (payload.eventType === 'DELETE') {
-          setNetworkConnections(prev => prev.filter(conn => conn.id !== payload.old.id))
-        }
-      })
-      .subscribe((status) => {
-        console.log('Connections subscription status:', status)
-      })
-
-    // Cleanup subscriptions
+    // Cleanup subscriptions and prevent state updates after unmount
     return () => {
+      isMounted = false
       linksSubscription.unsubscribe()
       groupsSubscription.unsubscribe()
-      connectionsSubscription.unsubscribe()
     }
-  }, [])
+  }, [profileId, isInitialLoad]) // Add isInitialLoad to dependency array
 
-  // Add a new link with optimistic update
+  // Add a new link with profile_id
   const addLink = async (title: string, url: string, group_id?: string | null, note_group_id?: string | null, color?: string) => {
+    if (!profileId) throw new Error('No active profile selected')
+
     const newLink = {
       id: crypto.randomUUID(), // Temporary ID
       title,
@@ -162,6 +177,7 @@ export function useSupabaseData(): UseSupabaseDataReturn {
       group_id: group_id || null,
       note_group_id: note_group_id || null,
       color: color || '#3b82f6',
+      profile_id: profileId,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
     } as Link
@@ -177,7 +193,8 @@ export function useSupabaseData(): UseSupabaseDataReturn {
           url, 
           group_id: group_id || null, 
           note_group_id: note_group_id || null,
-          color: color || '#3b82f6'
+          color: color || '#3b82f6',
+          profile_id: profileId
         }])
         .select()
         .single()
@@ -253,28 +270,44 @@ export function useSupabaseData(): UseSupabaseDataReturn {
     }
   }
 
-  // Add a new group with optimistic update
+  // Add a new group with profile_id
   const addGroup = async (name: string, color: string, note_group_id?: string | null, parent_group_id?: string | null): Promise<Group> => {
+    if (!profileId) throw new Error('No active profile selected')
+
+    const newGroup = {
+      id: crypto.randomUUID(), // Temporary ID
+      name,
+      color,
+      note_group_id: note_group_id || null,
+      parent_group_id: parent_group_id || null,
+      profile_id: profileId,
+      display_order: Math.max(0, ...groups.map(g => g.display_order)) + 1,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    } as Group
+
+    // Optimistically update the UI
+    setGroups(prev => [...prev, newGroup])
+
     try {
       const { data, error } = await supabase
         .from('groups')
-        .insert([{ 
-          name, 
-          color, 
+        .insert([{
+          name,
+          color,
           note_group_id: note_group_id || null,
-          parent_group_id: parent_group_id || null
+          parent_group_id: parent_group_id || null,
+          profile_id: profileId,
+          display_order: newGroup.display_order
         }])
-        .select('*')
+        .select()
         .single()
 
       if (error) throw error
-      if (data) {
-        setGroups(prev => [...prev, data])
-        return data
-      }
-      throw new Error('No data returned from insert')
+      return data
     } catch (error) {
-      console.error('Error adding group:', error)
+      // Revert optimistic update on error
+      setGroups(prev => prev.filter(group => group.id !== newGroup.id))
       throw error
     }
   }
@@ -405,7 +438,7 @@ export function useSupabaseData(): UseSupabaseDataReturn {
   }
 }
 
-export function useNotes() {
+export function useNotes(profileId: number) {
   const [notes, setNotes] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -413,7 +446,7 @@ export function useNotes() {
   const loadNotes = async () => {
     setLoading(true)
     try {
-      const data = await fetchNotes()
+      const data = await fetchNotes(profileId)
       setNotes(data)
       setError(null)
     } catch (err: any) {
@@ -425,27 +458,27 @@ export function useNotes() {
 
   useEffect(() => {
     loadNotes()
-  }, [])
+  }, [profileId])
 
   const createNote = async (title: string, description: string, note_group_id: string | null, group_id: string | null, link_id: string | null) => {
-    const note = await addNote(title, description, note_group_id, group_id, link_id)
+    const note = await addNote(title, description, note_group_id, group_id, link_id, profileId)
     setNotes(prev => [note, ...prev])
   }
 
   const editNote = async (id: string, updates: { title?: string; description?: string; note_group_id?: string | null; group_id?: string | null; link_id?: string | null }) => {
-    const note = await updateNote(id, updates)
+    const note = await updateNote(id, updates, profileId)
     setNotes(prev => prev.map(n => n.id === id ? note : n))
   }
 
   const removeNote = async (id: string) => {
-    await deleteNote(id)
+    await deleteNote(id, profileId)
     setNotes(prev => prev.filter(n => n.id !== id))
   }
 
   return { notes, loading, error, createNote, editNote, removeNote, reload: loadNotes }
 }
 
-export function useNoteGroups() {
+export function useNoteGroups(profileId: number) {
   const [noteGroups, setNoteGroups] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -453,7 +486,7 @@ export function useNoteGroups() {
   const loadNoteGroups = async () => {
     setLoading(true)
     try {
-      const data = await fetchNoteGroups()
+      const data = await fetchNoteGroups(profileId)
       setNoteGroups(data)
       setError(null)
     } catch (err: any) {
@@ -465,20 +498,20 @@ export function useNoteGroups() {
 
   useEffect(() => {
     loadNoteGroups()
-  }, [])
+  }, [profileId])
 
   const createNoteGroup = async (name: string, color: string) => {
-    const group = await addNoteGroup(name, color)
+    const group = await addNoteGroup(name, color, profileId)
     setNoteGroups(prev => [...prev, group])
   }
 
   const editNoteGroup = async (id: string, updates: { name?: string; color?: string }) => {
-    const group = await updateNoteGroup(id, updates)
+    const group = await updateNoteGroup(id, updates, profileId)
     setNoteGroups(prev => prev.map(g => g.id === id ? group : g))
   }
 
   const removeNoteGroup = async (id: string) => {
-    await deleteNoteGroup(id)
+    await deleteNoteGroup(id, profileId)
     setNoteGroups(prev => prev.filter(g => g.id !== id))
   }
 
