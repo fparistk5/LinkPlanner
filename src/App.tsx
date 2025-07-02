@@ -45,7 +45,9 @@ function App() {
     addNetworkConnection,
     deleteNetworkConnection,
     setLinks,
-    setGroups
+    setGroups,
+    setNetworkConnections,
+    refresh
   } = useSupabaseData(activeProfile)
 
   // Use hooks with profile ID
@@ -80,7 +82,7 @@ function App() {
   const [isAddingNoteGroup, setIsAddingNoteGroup] = useState(false)
   const [newNoteGroup, setNewNoteGroup] = useState({ name: '', color: '#3b82f6' })
   const [selectedNoteId, setSelectedNoteId] = useState<string | null>(null)
-  const [selectedLink, setSelectedLink] = useState<Link | null>(null)
+  const [selectedLinkState, setSelectedLinkState] = useState<Link | null>(null)
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null)
   const [titleFontSize, setTitleFontSize] = useState(12)
   const [networkProfiles, setNetworkProfiles] = useState<any[]>([])
@@ -920,12 +922,12 @@ function App() {
 
   const handleLinkNodeClick = (linkId: string) => {
     const link = links.find(l => l.id === linkId)
-    setSelectedLink(link || null)
+    setSelectedLinkState(link || null)
   }
 
   const handleGroupNodeClick = (groupId: string) => {
     setSelectedGroupId(groupId)
-    setSelectedLink(null) // Clear selected link when selecting a group
+    setSelectedLinkState(null) // Clear selected link when selecting a group
   }
 
   const handleSavePositions = async (positions: { [key: string]: { x: number; y: number } }) => {
@@ -962,9 +964,22 @@ function App() {
     
     setIsProfileSwitching(true)
     try {
+      // Clear any existing state
+      setLinks([])
+      setGroups([])
+      setNetworkConnections([])
+      
+      // Set the profile context
+      await supabase.rpc('set_profile_context', { profile_id: profile.id })
+      
       console.log('✅ Profile found and setting as current:', { id: profile.id, name: profile.name })
       setActiveProfile(profileId)
       setCurrentUserProfile(profile)
+      
+      // Force a reload of the profile's data
+      await refresh()
+    } catch (error) {
+      console.error('Error switching profiles:', error)
     } finally {
       // Small delay to ensure UI updates smoothly
       setTimeout(() => setIsProfileSwitching(false), 100)
@@ -974,12 +989,22 @@ function App() {
   const handleProfileCreated = async () => {
     setIsProfileSwitching(true)
     try {
+      // Clear any existing state
+      setLinks([])
+      setGroups([])
+      setNetworkConnections([])
+      
       // Reload profiles when a new one is created
       if (connectedWalletAddress) {
         await loadUserProfiles(connectedWalletAddress)
       } else {
         await loadGlobalProfiles()
       }
+      
+      // Force a refresh of the data
+      await refresh()
+    } catch (error) {
+      console.error('Error handling new profile:', error)
     } finally {
       setIsProfileSwitching(false)
     }
@@ -1137,15 +1162,24 @@ function App() {
       return canEdit
     }
     
-    // Global profile (TechKeyz) - no wallet owner, check if user has any NFTs
-    console.log('🔐 Global profile access - requiring NFT ownership for system changes')
-    return hasNFTs
+    // Global TechKeyz profile - only allow edit if user owns token ID 1
+    const ownsToken1 = ownedNFTs.some(nft => nft.id === '1')
+    console.log('🔐 TechKeyz global profile access check:', {
+      ownsToken1,
+      ownedNFTs: ownedNFTs.map(nft => nft.id)
+    })
+    return ownsToken1
   }
 
   // 🔐 SECURE WRAPPER FUNCTIONS - All edit operations go through these
   const secureEditNote = async (id: string, updates: any) => {
     if (!canEditProfile()) {
       const currentProfile = getProfile(activeProfile)
+      if (currentProfile && !currentProfile.wallet_address && !currentProfile.nft_token_id) {
+        console.log('🚫 Edit note blocked: No Token ID 1 ownership for TechKeyz global profile')
+        alert('⚠️ Access Denied: You must own Token ID 1 to edit the TechKeyz global profile.')
+        return
+      }
       const requiredToken = currentProfile?.nft_token_id
       console.log('🚫 Edit note blocked: Insufficient token access')
       alert(`⚠️ Access Denied: You must own ${requiredToken ? `NFT Token ID ${requiredToken}` : 'a qualifying NFT'} to edit notes in this profile.`)
@@ -1162,6 +1196,12 @@ function App() {
 
   const secureRemoveNote = async (id: string) => {
     if (!canEditProfile()) {
+      const currentProfile = getProfile(activeProfile)
+      if (currentProfile && !currentProfile.wallet_address && !currentProfile.nft_token_id) {
+        console.log('🚫 Delete note blocked: No Token ID 1 ownership for TechKeyz global profile')
+        alert('⚠️ Access Denied: You must own Token ID 1 to delete notes from the TechKeyz global profile.')
+        return
+      }
       console.log('🚫 Delete note blocked: No NFT ownership')
       alert('⚠️ You need to own a qualifying NFT to delete notes.')
       return
@@ -1177,6 +1217,12 @@ function App() {
 
   const secureEditNoteGroup = async (id: string, updates: any) => {
     if (!canEditProfile()) {
+      const currentProfile = getProfile(activeProfile)
+      if (currentProfile && !currentProfile.wallet_address && !currentProfile.nft_token_id) {
+        console.log('🚫 Edit note group blocked: No Token ID 1 ownership for TechKeyz global profile')
+        alert('⚠️ Access Denied: You must own Token ID 1 to edit note groups in the TechKeyz global profile.')
+        return
+      }
       console.log('🚫 Edit note group blocked: No NFT ownership')
       alert('⚠️ You need to own a qualifying NFT to edit note groups.')
       return
@@ -3236,7 +3282,7 @@ function App() {
               Preview
             </div>
             <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'stretch', flex: 1 }}>
-              {selectedLink ? (
+              {selectedLinkState ? (
                 <div style={{
                   width: 'calc(100% - 24px)',
                   maxWidth: 'calc(1000px - 24px)',
@@ -3251,10 +3297,10 @@ function App() {
                   alignItems: 'flex-start',
                   overflow: 'hidden',
                 }}>
-                  <div style={{ fontWeight: 600, fontSize: 15, color: '#f8fafc', marginBottom: 4, whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden', width: '100%' }}>{selectedLink.title}</div>
-                  <a href={selectedLink.url} target="_blank" rel="noopener noreferrer" style={{ color: '#94a3b8', fontSize: 13, textDecoration: 'underline', wordBreak: 'break-all' }}>{selectedLink.url}</a>
+                  <div style={{ fontWeight: 600, fontSize: 15, color: '#f8fafc', marginBottom: 4, whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden', width: '100%' }}>{selectedLinkState.title}</div>
+                  <a href={selectedLinkState.url} target="_blank" rel="noopener noreferrer" style={{ color: '#94a3b8', fontSize: 13, textDecoration: 'underline', wordBreak: 'break-all' }}>{selectedLinkState.url}</a>
                   <button 
-                    onClick={() => setSelectedLink(null)}
+                    onClick={() => setSelectedLinkState(null)}
                     style={{ 
                       marginTop: 8, 
                       fontSize: '12px', 
@@ -3381,7 +3427,7 @@ function App() {
               Note Display
             </div>
             <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'stretch', flex: 1 }}>
-              {selectedLink || selectedGroupId || selectedNoteId ? (
+              {selectedLinkState || selectedGroupId || selectedNoteId ? (
                 <div style={{
                   width: 'calc(100% - 24px)',
                   maxWidth: 'calc(1000px - 24px)',
@@ -3396,14 +3442,14 @@ function App() {
                 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
                     <h3 style={{ margin: 0, color: '#f8fafc', fontSize: '16px', fontWeight: 600 }}>
-                      {selectedNoteId ? 'Selected Note' : selectedLink ? 'Notes for Link' : 'Notes for Group'}: {selectedNoteId ? notes.find(n => n.id === selectedNoteId)?.title : selectedLink ? selectedLink.title : groups.find(g => g.id === selectedGroupId)?.name}
+                      {selectedNoteId ? 'Selected Note' : selectedLinkState ? 'Notes for Link' : 'Notes for Group'}: {selectedNoteId ? notes.find(n => n.id === selectedNoteId)?.title : selectedLinkState ? selectedLinkState.title : groups.find(g => g.id === selectedGroupId)?.name}
                     </h3>
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                     {notes
                       .filter(note => 
                         (selectedNoteId && note.id === selectedNoteId) ||
-                        (selectedLink && note.link_id === selectedLink.id) || 
+                        (selectedLinkState && note.link_id === selectedLinkState.id) || 
                         (selectedGroupId && note.group_id === selectedGroupId)
                       )
                       .map(note => (
@@ -3432,20 +3478,7 @@ function App() {
                                 Note Group: {noteGroups.find(ng => ng.id === note.note_group_id)?.name}
                               </div>
                             )}
-                            {note.group_id && !selectedGroupId && (
-                              <div style={{ 
-                                background: '#64748b', 
-                                padding: '2px 8px', 
-                                borderRadius: 4, 
-                                fontSize: 12,
-                                color: '#f8fafc',
-                                display: 'inline-flex',
-                                alignItems: 'center'
-                              }}>
-                                Group: {groups.find(g => g.id === note.group_id)?.name}
-                              </div>
-                            )}
-                            {note.link_id && !selectedLink && (
+                            {note.link_id && !selectedLinkState && (
                               <div style={{ 
                                 background: '#64748b', 
                                 padding: '2px 8px', 
@@ -3463,19 +3496,11 @@ function App() {
                     ))}
                     {notes.filter(note => 
                       (selectedNoteId && note.id === selectedNoteId) ||
-                      (selectedLink && note.link_id === selectedLink.id) || 
+                      (selectedLinkState && note.link_id === selectedLinkState.id) || 
                       (selectedGroupId && note.group_id === selectedGroupId)
                     ).length === 0 && (
-                      <div style={{ 
-                        color: '#94a3b8', 
-                        fontSize: 14, 
-                        textAlign: 'center', 
-                        padding: '12px',
-                        background: '#475569',
-                        border: '1px solid #64748b',
-                        borderRadius: 4
-                      }}>
-                        {selectedNoteId ? 'Note not found' : `No notes attached to this ${selectedLink ? 'link' : 'group'}`}
+                      <div style={{ color: '#94a3b8', fontSize: 14, textAlign: 'center', padding: '12px' }}>
+                        {selectedNoteId ? 'Note not found' : `No notes attached to this ${selectedLinkState ? 'link' : 'group'}`}
                       </div>
                     )}
                   </div>

@@ -55,12 +55,17 @@ export function NFTProfileSelector({
       currentProfileId: currentProfile?.id,
       currentProfileName: currentProfile?.name,
       allProfileIds: allProfiles.map(p => ({ id: p.id, name: p.name })),
-      techKeyzProfile: allProfiles.find(p => 
-        (!p.wallet_address && p.name === 'TechKeyz Profile') ||
-        (p.nft_token_id === '1') ||
-        (p.name?.toLowerCase().includes('techkeyz'))
-      ),
-      nftProfiles: allProfiles.filter(p => p.wallet_address === connectedWallet && p.nft_token_id)
+      nftProfiles: allProfiles
+        .filter(p => 
+          // For TechKeyz profile, only include if it matches token ID 1
+          (p.name === 'TechKeyz Profile' && p.nft_token_id === '1') ||
+          // For all other profiles, require full token match
+          (p.wallet_address === connectedWallet && 
+           p.nft_token_id && 
+           p.token_id === p.nft_token_id &&
+           p.token_address === connectedWallet &&
+           p.contract_address === NFT_CONTRACT.address)
+        )
     })
   }, [currentProfile, allProfiles, connectedWallet])
   const [isExpanded, setIsExpanded] = useState(false)
@@ -83,7 +88,14 @@ export function NFTProfileSelector({
           
           for (const nft of ownedNFTs) {
             const userNFTProfiles = allProfiles.filter(p => 
-              p.wallet_address === connectedWallet && p.nft_token_id === nft.id
+              // For TechKeyz profile, only include if it matches token ID 1
+              (nft.id === '1' && p.name === 'TechKeyz Profile' && p.nft_token_id === '1') ||
+              // For all other profiles, require full token match
+              (p.wallet_address === connectedWallet && 
+               p.nft_token_id === nft.id &&
+               p.token_id === nft.id &&
+               p.token_address === connectedWallet &&
+               p.contract_address === NFT_CONTRACT.address)
             )
             
             counts[nft.id] = userNFTProfiles.length
@@ -114,7 +126,7 @@ export function NFTProfileSelector({
       const selectedNFT = ownedNFTs.find(nft => nft.id === selectedNFTForCreation)
       if (!selectedNFT) throw new Error('Selected NFT not found')
 
-      // Create profile with token details
+      // Create profile with token details and explicitly empty positions
       const { data: newProfile, error } = await supabase
         .from('network_profiles')
         .insert([
@@ -124,30 +136,48 @@ export function NFTProfileSelector({
             nft_token_id: selectedNFT.id,
             token_id: selectedNFT.id,
             token_address: connectedWallet,
-            contract_address: NFT_CONTRACT.address
+            contract_address: NFT_CONTRACT.address,
+            positions: '{}' // Explicitly set as empty JSON string
           }
         ])
         .select()
         .single()
 
       if (error) throw error
+      
+      // Verify the new profile has empty positions
+      if (!newProfile.positions || Object.keys(newProfile.positions).length > 0) {
+        // If positions is not empty, update it to be empty
+        const { error: updateError } = await supabase
+          .from('network_profiles')
+          .update({ positions: '{}' })
+          .eq('id', newProfile.id)
+          .select()
+          .single()
 
+        if (updateError) throw updateError
+      }
+      
       // Reset form
       setNewProfileName('')
       setSelectedNFTForCreation('')
       setIsCreatingProfile(false)
       
-      // Notify parent
+      // Select the new profile immediately
+      onProfileSelect(newProfile.id)
+      
+      // Then notify parent to refresh the list
       if (onProfileCreated) {
         onProfileCreated()
       }
-
+      
       console.log('✅ Profile created successfully with token details:', {
         profileId: newProfile.id,
         name: newProfile.name,
         tokenId: selectedNFT.id,
         tokenAddress: connectedWallet,
-        contractAddress: NFT_CONTRACT.address
+        contractAddress: NFT_CONTRACT.address,
+        positions: newProfile.positions
       })
     } catch (error) {
       console.error('❌ Error creating profile:', error)
@@ -294,61 +324,6 @@ export function NFTProfileSelector({
     }
   }
 
-  // Handle creating TechKeyz profile if it doesn't exist
-  const handleCreateTechKeyzProfile = async () => {
-    try {
-      console.log('🎨 Creating TechKeyz Profile...')
-      
-      const { data: newProfile, error } = await supabase
-        .from('network_profiles')
-        .insert([{
-          name: 'TechKeyz Profile',
-          wallet_address: null,
-          nft_token_id: '1',
-          positions: {}
-        }])
-        .select()
-        .single()
-      
-      if (error) throw error
-
-      // Create default group for the new TechKeyz profile
-      try {
-        const { error: groupError } = await supabase
-          .from('groups')
-          .insert([{
-            name: 'new group',
-            color: '#3b82f6',
-            display_order: 1,
-            note_group_id: null,
-            parent_group_id: null
-          }])
-        
-        if (groupError) {
-          console.warn('⚠️ Failed to create default group for TechKeyz Profile:', groupError)
-        } else {
-          console.log('✅ Default group created for TechKeyz Profile')
-        }
-      } catch (groupError) {
-        console.warn('⚠️ Failed to create default group for TechKeyz Profile:', groupError)
-      }
-      
-      console.log('✅ TechKeyz Profile created successfully:', newProfile)
-      
-      // Notify parent to reload profiles
-      if (onProfileCreated) {
-        onProfileCreated()
-      }
-      
-      // Auto-select the new TechKeyz profile
-      onProfileSelect(newProfile.id)
-      
-    } catch (error) {
-      console.error('❌ Error creating TechKeyz Profile:', error)
-      alert(`Failed to create TechKeyz Profile: ${error instanceof Error ? error.message : 'Unknown error'}`)
-    }
-  }
-
   // Handle starting profile creation for specific NFT
   const handleStartCreation = async (nftId: string) => {
     if (!connectedWallet || !hasNFTs) return
@@ -372,26 +347,36 @@ export function NFTProfileSelector({
 
   // Get TechKeyz profile - must be the actual TechKeyz profile, not user profiles
   const techKeyzProfile = allProfiles.find(p => 
-    (!p.wallet_address && (
-      p.name === 'TechKeyz Profile' || 
-      p.name?.toLowerCase().includes('techkeyz')
-    ))
+    p.name === 'TECHKEYZ' && p.nft_token_id === '1' && p.token_id === '1'
   )
 
-  // Get user profiles grouped by NFT
-  const userProfiles = allProfiles.filter(p => p.wallet_address === connectedWallet)
+  // Get user profiles grouped by NFT, including TechKeyz as part of token ID 1
+  const userProfiles = allProfiles.filter(p => 
+    p.wallet_address === connectedWallet
+  )
   const profilesByNFT: { [nftId: string]: NetworkProfile[] } = {}
   userProfiles.forEach(profile => {
     if (profile.nft_token_id) {
       if (!profilesByNFT[profile.nft_token_id]) {
         profilesByNFT[profile.nft_token_id] = []
       }
+      // Only add if not already in the array
+      if (!profilesByNFT[profile.nft_token_id].some(p => p.id === profile.id)) {
       profilesByNFT[profile.nft_token_id].push(profile)
+    }
     }
   })
 
-  // Count total profiles including TechKeyz
-  const totalUserProfiles = userProfiles.filter(p => p.nft_token_id).length + (techKeyzProfile ? 1 : 0)
+  // Add TechKeyz to token ID 1 profiles if it exists
+  if (techKeyzProfile && !profilesByNFT['1']?.some(p => p.id === techKeyzProfile.id)) {
+    if (!profilesByNFT['1']) {
+      profilesByNFT['1'] = []
+    }
+    profilesByNFT['1'].push(techKeyzProfile)
+  }
+
+  // Count total profiles (TechKeyz is already included in profilesByNFT)
+  const totalUserProfiles = Object.values(profilesByNFT).reduce((sum, profiles) => sum + profiles.length, 0)
 
   // Don't render if no wallet connected or no NFTs
   if (!connectedWallet || !hasNFTs || ownedNFTs.length === 0) {
@@ -404,7 +389,7 @@ export function NFTProfileSelector({
   return (
     <div style={{ marginBottom: '16px' }}>
       {/* Header */}
-      <div 
+        <div 
         onClick={() => setIsExpanded(!isExpanded)}
         style={{
           display: 'flex',
@@ -463,13 +448,13 @@ export function NFTProfileSelector({
         }}>
           {/* Profile Groups by NFT */}
           {Object.entries(profilesByNFT).map(([nftId, profiles], nftIndex) => {
-            // Count total profiles including TechKeyz for token ID '1'
-            const totalProfiles = nftId === '1' ? profiles.length + (techKeyzProfile ? 1 : 0) : profiles.length
+            // Count total profiles for this NFT (TechKeyz is already included)
+            const totalProfiles = profiles.length
             
             return (
               <div 
-                key={nftId}
-                style={{ 
+                key={`nft-group-${nftId}-${nftIndex}`}
+                style={{
                   marginBottom: nftIndex === Object.entries(profilesByNFT).length - 1 ? '0' : '24px'
                 }}
               >
@@ -480,7 +465,7 @@ export function NFTProfileSelector({
                   justifyContent: 'space-between',
                   marginBottom: '12px',
                   padding: '4px 8px',
-                  borderRadius: '4px',
+                    borderRadius: '4px',
                   backgroundColor: '#334155',
                   border: '1px solid #475569'
                 }}>
@@ -491,353 +476,173 @@ export function NFTProfileSelector({
                     <span style={{ color: '#64748b', fontSize: '12px' }}>
                       ({totalProfiles}/3 profiles)
                     </span>
-                  </div>
-                </div>
+              </div>
+            </div>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                  {/* 2. TechKeyz Profile - Only show for NFT ID '1' */}
-                  {nftId === '1' && techKeyzProfile && (
-                    <div style={{ 
-                      border: '1px solid #475569',
-                      borderRadius: '6px',
-                      backgroundColor: '#334155',
-                      overflow: 'hidden'
-                    }}>
-                      <div
-                        style={{
-                          padding: '8px 16px',
-                          fontSize: '14px',
-                          cursor: editingProfile === techKeyzProfile.id ? 'default' : 'pointer',
-                          transition: 'background-color 0.15s',
-                          backgroundColor: currentProfile?.id === techKeyzProfile.id ? '#1e40af' : 'transparent',
-                          color: currentProfile?.id === techKeyzProfile.id ? '#ffffff' : '#f8fafc',
-                          borderRadius: '6px'
-                        }}
-                        onMouseEnter={(e) => {
-                          if (currentProfile?.id !== techKeyzProfile.id && editingProfile !== techKeyzProfile.id) {
-                            e.currentTarget.style.backgroundColor = '#475569'
-                          }
-                        }}
-                        onMouseLeave={(e) => {
-                          if (currentProfile?.id !== techKeyzProfile.id && editingProfile !== techKeyzProfile.id) {
-                            e.currentTarget.style.backgroundColor = 'transparent'
-                          }
-                        }}
-                        onClick={() => {
-                          if (editingProfile !== techKeyzProfile.id) {
-                            onProfileSelect(techKeyzProfile.id)
-                            setIsCreatingProfile(false)
-                            setNewProfileName('')
-                            setSelectedNFTForCreation('')
-                          }
-                        }}
-                      >
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <div
-                              style={{
-                                width: '10px',
-                                height: '10px',
-                                borderRadius: '50%',
-                                backgroundColor: currentProfile?.id === techKeyzProfile.id ? '#60a5fa' : '#10b981',
-                                border: '1px solid rgba(255, 255, 255, 0.2)'
-                              }}
-                            ></div>
-                            {editingProfile === techKeyzProfile.id ? (
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%', maxWidth: '100%' }}>
-                                <input
-                                  type="text"
-                                  value={editProfileName}
-                                  onChange={(e) => setEditProfileName(e.target.value)}
-                                  style={{
-                                    background: '#1e293b',
-                                    border: '1px solid #64748b',
-                                    borderRadius: '4px',
-                                    padding: '4px 8px',
-                                    color: '#ffffff',
-                                    fontSize: '14px',
-                                    width: '100%',
-                                    boxSizing: 'border-box',
-                                    minWidth: 0
-                                  }}
-                                  autoFocus
-                                  onKeyDown={(e) => {
-                                    if (e.key === 'Enter') {
-                                      handleEditProfile(techKeyzProfile.id)
-                                    } else if (e.key === 'Escape') {
-                                      setEditingProfile(null)
-                                      setEditProfileName('')
-                                    }
-                                  }}
-                                />
-                                <div style={{ 
-                                  display: 'flex', 
-                                  gap: '8px', 
-                                  alignItems: 'center',
-                                  width: '100%',
-                                  minWidth: 0
-                                }}>
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation()
-                                      handleEditProfile(techKeyzProfile.id)
-                                    }}
-                                    disabled={!editProfileName.trim()}
-                                    style={{
-                                      padding: '4px 12px',
-                                      border: 'none',
-                                      borderRadius: '4px',
-                                      backgroundColor: editProfileName.trim() ? '#10b981' : '#6b7280',
-                                      color: '#ffffff',
-                                      fontSize: '12px',
-                                      cursor: editProfileName.trim() ? 'pointer' : 'not-allowed',
-                                      whiteSpace: 'nowrap',
-                                      height: '24px',
-                                      display: 'flex',
-                                      alignItems: 'center'
-                                    }}
-                                  >
-                                    Save
-                                  </button>
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation()
-                                      setEditingProfile(null)
-                                      setEditProfileName('')
-                                    }}
-                                    style={{
-                                      padding: '4px 12px',
-                                      border: '1px solid #64748b',
-                                      borderRadius: '4px',
-                                      backgroundColor: 'transparent',
-                                      color: '#94a3b8',
-                                      fontSize: '12px',
-                                      cursor: 'pointer',
-                                      whiteSpace: 'nowrap',
-                                      height: '24px',
-                                      display: 'flex',
-                                      alignItems: 'center'
-                                    }}
-                                  >
-                                    Cancel
-                                  </button>
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation()
-                                      handleDeleteProfile(techKeyzProfile.id, techKeyzProfile.name)
-                                    }}
-                                    style={{
-                                      padding: '4px',
-                                      border: '1px solid #ef4444',
-                                      borderRadius: '4px',
-                                      backgroundColor: 'transparent',
-                                      color: '#ef4444',
-                                      fontSize: '14px',
-                                      cursor: 'pointer',
-                                      whiteSpace: 'nowrap',
-                                      height: '24px',
-                                      width: '24px',
-                                      display: 'flex',
-                                      alignItems: 'center',
-                                      justifyContent: 'center'
-                                    }}
-                                    title="Delete profile"
-                                  >
-                                    🗑️
-                                  </button>
-                                </div>
-                              </div>
-                            ) : (
-                              <span style={{ fontWeight: '500', fontSize: '14px' }}>TECHKEYZ</span>
-                            )}
-                          </div>
-                          {!editingProfile && (
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                setEditingProfile(techKeyzProfile.id)
-                                setEditProfileName(techKeyzProfile.name)
-                              }}
-                              style={{
-                                background: 'none',
-                                border: 'none',
-                                color: '#10b981',
-                                fontSize: '18px',
-                                cursor: 'pointer',
-                                padding: '4px',
-                                fontWeight: 'bold'
-                              }}
-                              title="Edit profile"
-                            >
-                              +
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* 3. Regular Profiles List */}
+                  {/* Show all profiles for this NFT, including TechKeyz */}
                   {profiles.map((profile) => (
                     <div
-                      key={profile.id}
+                      key={`nft-profile-${profile.id}-${nftId}-${profile.nft_token_id}`}
                       style={{
-                        border: '1px solid #475569',
-                        borderRadius: '6px',
+              border: '1px solid #475569',
+              borderRadius: '6px',
                         backgroundColor: '#334155',
                         overflow: 'hidden'
                       }}
                     >
-                      <div
-                        style={{
-                          padding: '8px 16px',
-                          fontSize: '14px',
+              <div
+                style={{
+                  padding: '8px 16px',
+                  fontSize: '14px',
                           cursor: editingProfile === profile.id ? 'default' : 'pointer',
-                          transition: 'background-color 0.15s',
+                  transition: 'background-color 0.15s',
                           backgroundColor: currentProfile?.id === profile.id ? '#1e40af' : 'transparent',
                           color: currentProfile?.id === profile.id ? '#ffffff' : '#f8fafc'
-                        }}
-                        onMouseEnter={(e) => {
+                }}
+                onMouseEnter={(e) => {
                           if (currentProfile?.id !== profile.id && editingProfile !== profile.id) {
-                            e.currentTarget.style.backgroundColor = '#475569'
-                          }
-                        }}
-                        onMouseLeave={(e) => {
+                    e.currentTarget.style.backgroundColor = '#475569'
+                  }
+                }}
+                onMouseLeave={(e) => {
                           if (currentProfile?.id !== profile.id && editingProfile !== profile.id) {
-                            e.currentTarget.style.backgroundColor = 'transparent'
-                          }
-                        }}
-                        onClick={() => {
+                    e.currentTarget.style.backgroundColor = 'transparent'
+                  }
+                }}
+                onClick={() => {
                           if (editingProfile !== profile.id) {
                             onProfileSelect(profile.id)
-                          }
-                        }}
-                      >
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <div
-                              style={{
-                                width: '10px',
-                                height: '10px',
-                                borderRadius: '50%',
+                  }
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <div
+                      style={{
+                        width: '10px',
+                        height: '10px',
+                        borderRadius: '50%',
                                 backgroundColor: currentProfile?.id === profile.id ? '#60a5fa' : '#10b981',
-                                border: '1px solid rgba(255, 255, 255, 0.2)'
-                              }}
-                            ></div>
+                        border: '1px solid rgba(255, 255, 255, 0.2)'
+                      }}
+                    ></div>
                             {editingProfile === profile.id ? (
                               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%', maxWidth: '100%' }}>
-                                <input
-                                  type="text"
-                                  value={editProfileName}
-                                  onChange={(e) => setEditProfileName(e.target.value)}
-                                  style={{
-                                    background: '#1e293b',
-                                    border: '1px solid #64748b',
-                                    borderRadius: '4px',
-                                    padding: '4px 8px',
-                                    color: '#ffffff',
-                                    fontSize: '14px',
+                      <input
+                        type="text"
+                        value={editProfileName}
+                        onChange={(e) => setEditProfileName(e.target.value)}
+                        style={{
+                          background: '#1e293b',
+                          border: '1px solid #64748b',
+                          borderRadius: '4px',
+                          padding: '4px 8px',
+                          color: '#ffffff',
+                          fontSize: '14px',
                                     width: '100%',
                                     boxSizing: 'border-box',
                                     minWidth: 0
-                                  }}
-                                  autoFocus
-                                  onKeyDown={(e) => {
-                                    if (e.key === 'Enter') {
+                        }}
+                        autoFocus
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
                                       handleEditProfile(profile.id)
-                                    } else if (e.key === 'Escape') {
-                                      setEditingProfile(null)
-                                      setEditProfileName('')
-                                    }
-                                  }}
-                                />
-                                <div style={{ 
+                          } else if (e.key === 'Escape') {
+                            setEditingProfile(null)
+                            setEditProfileName('')
+                          }
+                        }}
+                      />
+                <div style={{
                                   display: 'flex', 
                                   gap: '8px', 
                                   alignItems: 'center',
                                   width: '100%',
                                   minWidth: 0
                                 }}>
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation()
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
                                       handleEditProfile(profile.id)
-                                    }}
-                                    disabled={!editProfileName.trim()}
-                                    style={{
+                        }}
+                        disabled={!editProfileName.trim()}
+                        style={{
                                       padding: '4px 12px',
-                                      border: 'none',
-                                      borderRadius: '4px',
-                                      backgroundColor: editProfileName.trim() ? '#10b981' : '#6b7280',
-                                      color: '#ffffff',
+                          border: 'none',
+                          borderRadius: '4px',
+                          backgroundColor: editProfileName.trim() ? '#10b981' : '#6b7280',
+                          color: '#ffffff',
                                       fontSize: '12px',
-                                      cursor: editProfileName.trim() ? 'pointer' : 'not-allowed',
+                          cursor: editProfileName.trim() ? 'pointer' : 'not-allowed',
                                       whiteSpace: 'nowrap',
                                       height: '24px',
                                       display: 'flex',
                                       alignItems: 'center'
-                                    }}
-                                  >
-                                    Save
-                                  </button>
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation()
-                                      setEditingProfile(null)
-                                      setEditProfileName('')
-                                    }}
-                                    style={{
+                        }}
+                      >
+                        Save
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setEditingProfile(null)
+                          setEditProfileName('')
+                        }}
+                        style={{
                                       padding: '4px 12px',
-                                      border: '1px solid #64748b',
-                                      borderRadius: '4px',
-                                      backgroundColor: 'transparent',
-                                      color: '#94a3b8',
+                          border: '1px solid #64748b',
+                          borderRadius: '4px',
+                          backgroundColor: 'transparent',
+                          color: '#94a3b8',
                                       fontSize: '12px',
                                       cursor: 'pointer',
                                       whiteSpace: 'nowrap',
                                       height: '24px',
                                       display: 'flex',
                                       alignItems: 'center'
-                                    }}
-                                  >
-                                    Cancel
-                                  </button>
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation()
+                        }}
+                      >
+                        Cancel
+                      </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
                                       handleDeleteProfile(profile.id, profile.name)
-                                    }}
-                                    style={{
+                      }}
+                      style={{
                                       padding: '4px',
                                       border: '1px solid #ef4444',
-                                      borderRadius: '4px',
+                        borderRadius: '4px',
                                       backgroundColor: 'transparent',
                                       color: '#ef4444',
                                       fontSize: '14px',
-                                      cursor: 'pointer',
+                        cursor: 'pointer',
                                       whiteSpace: 'nowrap',
                                       height: '24px',
                                       width: '24px',
-                                      display: 'flex',
-                                      alignItems: 'center',
+                display: 'flex',
+                alignItems: 'center',
                                       justifyContent: 'center'
                                     }}
                                     title="Delete profile"
                                   >
                                     🗑️
                                   </button>
-                                </div>
-                              </div>
+                </div>
+              </div>
                             ) : (
-                              <span style={{ fontWeight: '500', fontSize: '14px' }}>{profile.name}</span>
+                              <span style={{ fontWeight: '500', fontSize: '14px' }}>
+                                {profile.name === 'TECHKEYZ' ? 'TECHKEYZ' : profile.name}
+                              </span>
                             )}
                           </div>
                           {!editingProfile && (
                             <button
                               onClick={(e) => {
                                 e.stopPropagation()
-                                setEditingProfile(profile.id)
-                                setEditProfileName(profile.name)
+                                  setEditingProfile(profile.id)
+                                  setEditProfileName(profile.name)
                               }}
                               style={{
                                 background: 'none',
@@ -853,12 +658,12 @@ export function NFTProfileSelector({
                               +
                             </button>
                           )}
+                          </div>
                         </div>
-                      </div>
-                    </div>
+                            </div>
                   ))}
-                </div>
-              </div>
+                        </div>
+                  </div>
             )
           })}
 
@@ -907,82 +712,82 @@ export function NFTProfileSelector({
               textAlign: 'center'
             }}>
               Maximum profile limit reached (3/3)
-            </div>
+                </div>
           )}
-
+                
           {/* Profile Creation Form */}
           {isCreatingProfile && (
-            <div style={{
+                       <div style={{
               padding: '12px',
               marginTop: '12px',
               border: '1px solid #475569',
               borderRadius: '6px',
               backgroundColor: '#1e293b'
-            }}>
+                       }}>
               <div style={{ marginBottom: '8px', fontSize: '12px', color: '#94a3b8' }}>
                 Creating profile for {ownedNFTs.find(nft => nft.id === selectedNFTForCreation)?.name || `NFT ${selectedNFTForCreation}`}
               </div>
-              <input
-                type="text"
+                           <input
+                             type="text"
                 value={newProfileName}
                 onChange={(e) => setNewProfileName(e.target.value)}
                 placeholder="Enter profile name..."
-                style={{
-                  width: '100%',
+                             style={{
+                               width: '100%',
                   padding: '6px 8px',
-                  border: '1px solid #64748b',
-                  borderRadius: '4px',
+                               border: '1px solid #64748b',
+                               borderRadius: '4px',
                   backgroundColor: '#1e293b',
-                  color: '#ffffff',
+                               color: '#ffffff',
                   fontSize: '14px',
                   marginBottom: '8px'
-                }}
-                autoFocus
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
+                             }}
+                             autoFocus
+                             onKeyDown={(e) => {
+                               if (e.key === 'Enter') {
                     handleCreateProfile()
-                  } else if (e.key === 'Escape') {
+                               } else if (e.key === 'Escape') {
                     setIsCreatingProfile(false)
                     setNewProfileName('')
                     setSelectedNFTForCreation('')
-                  }
-                }}
-              />
+                               }
+                             }}
+                           />
               <div style={{ display: 'flex', gap: '6px' }}>
-                <button
+                             <button
                   onClick={handleCreateProfile}
                   disabled={!newProfileName.trim() || createLoading}
-                  style={{
+                               style={{
                     padding: '4px 12px',
-                    border: 'none',
-                    borderRadius: '4px',
+                                 border: 'none',
+                                 borderRadius: '4px',
                     backgroundColor: newProfileName.trim() ? '#10b981' : '#6b7280',
-                    color: '#ffffff',
+                                 color: '#ffffff',
                     fontSize: '12px',
                     cursor: newProfileName.trim() ? 'pointer' : 'not-allowed',
                     opacity: createLoading ? 0.7 : 1
-                  }}
-                >
+                               }}
+                             >
                   {createLoading ? 'Creating...' : 'Create'}
-                </button>
-                <button
+                             </button>
+                             <button
                   onClick={() => {
                     setIsCreatingProfile(false)
                     setNewProfileName('')
                     setSelectedNFTForCreation('')
-                  }}
-                  style={{
+                               }}
+                               style={{
                     padding: '4px 12px',
-                    border: '1px solid #64748b',
-                    borderRadius: '4px',
-                    backgroundColor: 'transparent',
-                    color: '#94a3b8',
+                                 border: '1px solid #64748b',
+                                 borderRadius: '4px',
+                                 backgroundColor: 'transparent',
+                                 color: '#94a3b8',
                     fontSize: '12px',
-                    cursor: 'pointer'
-                  }}
-                >
-                  Cancel
-                </button>
+                                 cursor: 'pointer'
+                               }}
+                             >
+                               Cancel
+                           </button>
               </div>
             </div>
           )}
@@ -1031,29 +836,39 @@ export function GeneralProfileSelector({
 
   // Handle profile creation
   const handleCreateGeneralProfile = async () => {
-    if (!newProfileName.trim() || !connectedWallet) return
-
+    if (!newProfileName.trim()) return
     setCreateLoading(true)
+
     try {
-      const createdProfile = await createEmptyGeneralProfile(
-        connectedWallet,
-        newProfileName.trim()
-      )
+      // Create general profile with empty positions
+      const { data: newProfile, error } = await supabase
+        .from('network_profiles')
+        .insert([
+          {
+            name: newProfileName.trim(),
+            wallet_address: connectedWallet,
+            positions: {}, // Initialize with empty positions
+            nft_token_id: null,
+            token_id: null,
+            token_address: null,
+            contract_address: null
+          }
+        ])
+        .select()
+        .single()
+
+      if (error) throw error
       
-      // Reset form state
+      // Reset form
       setNewProfileName('')
       setIsCreatingProfile(false)
       
-      // Notify parent component and wait for profiles to refresh
+      // Notify parent
       if (onProfileCreated) {
-        await onProfileCreated()
-        // Select the new profile after parent has refreshed the profile list
-        onProfileSelect(createdProfile.id)
+        onProfileCreated()
       }
       
-      console.log('✅ New general profile created successfully:', {
-        profileName: createdProfile.name
-      })
+      console.log('✅ General profile created successfully:', newProfile)
     } catch (error) {
       console.error('❌ Error creating general profile:', error)
       alert(`Failed to create profile: ${error instanceof Error ? error.message : 'Unknown error'}`)
@@ -1282,8 +1097,8 @@ export function GeneralProfileSelector({
                   Cancel
                 </button>
               </div>
-            </div>
-          )}
+                  </div>
+                )}
 
           {/* Create New General Profile Button */}
           {canCreate && !isCreatingProfile && (
@@ -1316,7 +1131,7 @@ export function GeneralProfileSelector({
           {/* General Profiles List with edit/save/delete buttons */}
           {generalProfiles.map((profile, index) => (
             <div
-              key={profile.id}
+              key={`general-profile-${profile.id}`}
               style={{
                 padding: '8px 12px',
                 marginBottom: '4px',
@@ -1365,31 +1180,31 @@ export function GeneralProfileSelector({
                   ></div>
                   {editingProfile === profile.id ? (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%', maxWidth: '100%' }}>
-                      <input
-                        type="text"
-                        value={editProfileName}
-                        onChange={(e) => setEditProfileName(e.target.value)}
-                        style={{
-                          background: '#1e293b',
-                          border: '1px solid #64748b',
-                          borderRadius: '4px',
-                          padding: '4px 8px',
-                          color: '#ffffff',
-                          fontSize: '14px',
+                    <input
+                      type="text"
+                      value={editProfileName}
+                      onChange={(e) => setEditProfileName(e.target.value)}
+                      style={{
+                        background: '#1e293b',
+                        border: '1px solid #64748b',
+                        borderRadius: '4px',
+                        padding: '4px 8px',
+                        color: '#ffffff',
+                        fontSize: '14px',
                           width: '100%',
                           boxSizing: 'border-box',
                           minWidth: 0
-                        }}
-                        autoFocus
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            handleEditProfile(profile.id)
-                          } else if (e.key === 'Escape') {
-                            setEditingProfile(null)
-                            setEditProfileName('')
-                          }
-                        }}
-                      />
+                      }}
+                      autoFocus
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          handleEditProfile(profile.id)
+                        } else if (e.key === 'Escape') {
+                          setEditingProfile(null)
+                          setEditProfileName('')
+                        }
+                      }}
+                    />
                       <div style={{ 
                         display: 'flex', 
                         gap: '8px', 
@@ -1558,8 +1373,8 @@ export function GeneralProfileSelector({
                   )}
                 </div>
               </div>
-            </div>
-          ))}
+              </div>
+            ))}
 
           {/* Max profiles reached */}
           {!canCreate && generalProfiles.length >= 2 && (
@@ -1573,11 +1388,11 @@ export function GeneralProfileSelector({
               borderRadius: '4px'
             }}>
               ⚠️ Max 2 general profiles per wallet
-            </div>
+                </div>
           )}
-        </div>
-      )}
-    </div>
+              </div>
+            )}
+          </div>
   )
 }
 
@@ -1595,8 +1410,8 @@ export function SavedProfileSelector({
 
   // Get profiles that have been edited/saved (custom names, not default auto-generated names)
   const savedProfiles = allProfiles.filter(p => {
-    // Include TechKeyz profile (read-only default) - more flexible matching
-    if (!p.wallet_address && (p.name === 'TechKeyz Profile' || p.name?.toLowerCase().includes('techkeyz'))) {
+    // Include TechKeyz profile as a token ID 1 profile
+    if (p.name === 'TECHKEYZ' && p.nft_token_id === '1' && p.token_id === '1') {
       return true
     }
     
@@ -1604,16 +1419,31 @@ export function SavedProfileSelector({
     // Check if it's not an auto-generated name pattern regardless of wallet connection
     const isAutoGenerated = (
       p.name.match(/^.+\s+Profile\s+\d+$/) || // "NFT Name Profile 1" pattern
-      p.name.match(/^My Profile \d+$/) // "My Profile 1" pattern
+      p.name.match(/^My Profile \d+$/) || // "My Profile 1" pattern
+      p.name.match(/^New Profile( \d+)?$/) // "New Profile" or "New Profile 1" pattern
     )
     
-    // Show customized profiles even when logged out
-    if (!isAutoGenerated && p.wallet_address) {
+    // Show customized profiles even when logged out, but exclude any other TechKeyz variants
+    if (!isAutoGenerated && p.wallet_address && p.name !== 'TECHKEYZ' && !p.name?.toLowerCase().includes('techkeyz')) {
       return true
     }
     
     return false
   })
+
+  // Remove any duplicate TechKeyz profiles
+  const uniqueSavedProfiles = savedProfiles.reduce((acc, profile) => {
+    // If it's a TechKeyz profile, only keep one instance
+    if (profile.name === 'TECHKEYZ') {
+      const existingTechKeyz = acc.find(p => p.name === 'TECHKEYZ')
+      if (!existingTechKeyz) {
+        acc.push(profile)
+      }
+    } else {
+      acc.push(profile)
+    }
+    return acc
+  }, [] as typeof savedProfiles)
 
   return (
     <div style={{ marginBottom: '16px' }}>
@@ -1655,11 +1485,11 @@ export function SavedProfileSelector({
             }}
           ></div>
           <h4 style={{ margin: 0, color: '#ffffff', fontSize: '14px' }}>
-            💾 Saved Profiles ({savedProfiles.length})
+            💾 Saved Profiles ({uniqueSavedProfiles.length})
           </h4>
         </div>
       </div>
-      
+
       {isExpanded && (
         <div style={{ 
           position: 'absolute',
@@ -1675,7 +1505,7 @@ export function SavedProfileSelector({
           overflowY: 'auto',
           padding: '12px'
         }}>
-          {savedProfiles.length === 0 ? (
+          {uniqueSavedProfiles.length === 0 ? (
             <div style={{
               padding: '12px',
               fontSize: '13px',
@@ -1691,13 +1521,10 @@ export function SavedProfileSelector({
               </div>
             </div>
           ) : (
-            savedProfiles.map((profile, index) => {
-              const isTechKeyz = !profile.wallet_address && profile.name === 'TechKeyz Profile'
-              const isReadOnly = isTechKeyz
-              
+            uniqueSavedProfiles.map((profile, index) => {
               return (
                 <div
-                  key={profile.id}
+                  key={`saved-profile-${profile.id}`}
                   style={{
                     padding: '8px 12px',
                     marginBottom: '4px',
@@ -1735,13 +1562,8 @@ export function SavedProfileSelector({
                         }}
                       ></div>
                       <span style={{ fontWeight: '500' }}>
-                        {isTechKeyz ? 'TECHKEYZ' : profile.name}
+                        {profile.name}
                       </span>
-                      {isReadOnly && (
-                        <span style={{ fontSize: '10px', color: '#94a3b8', fontWeight: '400' }}>
-                          (Read-only)
-                        </span>
-                      )}
                     </div>
                     
                     {/* Active Indicator */}

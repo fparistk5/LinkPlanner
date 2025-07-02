@@ -432,27 +432,27 @@ export async function canCreateNewProfileForNFT(walletAddress: string, nftTokenI
   return canCreate // Allow up to 3 profiles per NFT
 }
 
-export async function createEmptyProfileForNFT(walletAddress: string, nftTokenId: string, profileName: string): Promise<any> {
-  try {
-    // Try to set the RLS context to null, but continue even if it fails
-    try {
-      await supabase.rpc('set_profile_context', { profile_id: null });
-    } catch (contextError) {
-      console.warn('⚠️ Failed to clear profile context, but continuing with profile creation:', contextError);
-    }
+interface NetworkProfile {
+  id: number;
+  name: string;
+  wallet_address: string | null;
+  nft_token_id: string | null;
+  positions: any;
+  created_at: string;
+  updated_at: string;
+}
 
-    // Insert new profile with empty positions to ensure no inherited data
+export async function createEmptyProfileForNFT(walletAddress: string, nftTokenId: string, profileName: string): Promise<NetworkProfile> {
+  try {
+    // Use the new clean profile creation function
     const { data: newProfile, error: profileError } = await supabase
-    .from('network_profiles')
-    .insert([{
-      name: profileName,
-      wallet_address: walletAddress,
-      nft_token_id: nftTokenId,
-        positions: {} // Explicitly set to empty to prevent any inherited data
-    }])
-    .select()
+      .rpc('create_clean_profile', {
+        p_name: profileName,
+        p_wallet_address: walletAddress,
+        p_nft_token_id: nftTokenId
+      })
       .single();
-  
+
     if (profileError) {
       console.error('❌ Error creating new NFT profile:', profileError);
       throw new Error(`Failed to create profile: ${profileError.message}`);
@@ -463,24 +463,18 @@ export async function createEmptyProfileForNFT(walletAddress: string, nftTokenId
       throw new Error('Failed to create profile: No profile data returned');
     }
 
-    console.log('✅ New NFT profile created:', newProfile);
-
-    // Try to set the RLS context to the new profile, but continue even if it fails
-    try {
-      await supabase.rpc('set_profile_context', { profile_id: newProfile.id });
-    } catch (contextError) {
-      console.warn('⚠️ Failed to set new profile context, but continuing with group creation:', contextError);
-    }
+    const profile = newProfile as NetworkProfile;
+    console.log('✅ New NFT profile created:', profile);
 
     // Create a default group for the new profile
-  try {
-      await createDefaultGroupForProfile(newProfile.id);
-  } catch (groupError) {
+    try {
+      await createDefaultGroupForProfile(profile.id);
+    } catch (groupError) {
       console.warn('⚠️ Failed to create default group, but profile was created:', groupError);
-  }
+    }
 
     // Return the new profile
-    return newProfile;
+    return profile;
   } catch (error) {
     console.error('❌ Unexpected error creating NFT profile:', error);
     throw error;
@@ -614,43 +608,39 @@ export async function canCreateNewGeneralProfile(walletAddress: string): Promise
   return canCreate
 }
 
-export async function createEmptyGeneralProfile(walletAddress: string, profileName: string): Promise<any> {
+export async function createEmptyGeneralProfile(walletAddress: string, profileName: string): Promise<NetworkProfile> {
   // Check if user can create a new general profile
   const canCreate = await canCreateNewGeneralProfile(walletAddress)
   if (!canCreate) {
     throw new Error('Maximum of 2 general profiles allowed per wallet')
   }
 
-  // Create the profile with empty data
-  const { data: newProfile, error } = await supabase
-    .from('network_profiles')
-    .insert([{
-      name: profileName,
-      wallet_address: walletAddress,
-      nft_token_id: null, // No NFT token ID for general profiles
-      positions: {} // Explicitly set to empty to prevent any inherited data
-    }])
-    .select()
-    .single()
-  
-  if (error) throw error
-
-  // Create default group for the new profile
   try {
-    await createDefaultGroupForProfile(newProfile.id)
-  } catch (groupError) {
-    console.warn('⚠️ Failed to create default group for profile, but profile was created:', groupError)
-  }
+    // Use the new clean profile creation function
+    const { data: newProfile, error } = await supabase
+      .rpc('create_clean_profile', {
+        p_name: profileName,
+        p_wallet_address: walletAddress,
+        p_nft_token_id: null
+      })
+      .single();
 
-  // Ensure no inherited data from TechKeyz or other profiles (check for database triggers)
-  // NOTE: If links or data are still inherited, check Supabase dashboard for database triggers or policies
-  // that might be copying data from TechKeyz profile (e.g., id 1 or name 'TechKeyz Profile')
-  if (newProfile.positions && Object.keys(newProfile.positions).length > 0) {
-    console.warn('⚠️ New profile has non-empty positions, resetting to empty');
-    await updateNetworkProfile(newProfile.id, { positions: {} });
-  }
+    if (error) throw error;
 
-  return newProfile
+    const profile = newProfile as NetworkProfile;
+
+    // Create default group for the new profile
+    try {
+      await createDefaultGroupForProfile(profile.id)
+    } catch (groupError) {
+      console.warn('⚠️ Failed to create default group for profile, but profile was created:', groupError)
+    }
+
+    return profile;
+  } catch (error) {
+    console.error('❌ Error creating general profile:', error);
+    throw error;
+  }
 }
 
 export async function getNextGeneralProfileNumber(walletAddress: string): Promise<number> {
@@ -686,18 +676,18 @@ export async function createDefaultGroupForProfile(profileId: number): Promise<v
     }
 
     // Create the default group with explicit profile_id
-  const { error } = await supabase
-    .from('groups')
-    .insert([{
-      name: 'new group',
-      color: '#3b82f6',
-      display_order: 1,
-      note_group_id: null,
+    const { error } = await supabase
+      .from('groups')
+      .insert([{
+        name: 'Main',
+        color: '#3b82f6',
+        display_order: 1,
+        note_group_id: null,
         parent_group_id: null,
         profile_id: profileId // Explicitly set the profile_id
-    }])
+      }])
   
-  if (error) {
+    if (error) {
       // If insert fails, try without RLS
       console.warn('⚠️ Failed to create group with RLS, attempting without profile context:', error);
       
@@ -712,7 +702,7 @@ export async function createDefaultGroupForProfile(profileId: number): Promise<v
       const { error: retryError } = await supabase
         .from('groups')
         .insert([{
-          name: 'new group',
+          name: 'Main',
           color: '#3b82f6',
           display_order: 1,
           note_group_id: null,
@@ -726,7 +716,7 @@ export async function createDefaultGroupForProfile(profileId: number): Promise<v
       }
     }
     
-    console.log('✅ Default group "new group" created successfully for profile:', profileId)
+    console.log('✅ Default group "Main" created successfully for profile:', profileId)
   } catch (error) {
     console.error('❌ Error creating default group:', error)
     throw error

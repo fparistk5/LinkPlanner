@@ -7,7 +7,7 @@ interface ImportMetaEnv {
 
 interface ImportMeta {
   readonly env: ImportMetaEnv
-}
+} 
 
 interface Database {
   public: {
@@ -25,7 +25,30 @@ interface Database {
           created_at: string
           updated_at: string
         }
-        // ... rest of the type definition
+        Insert: {
+          id?: number
+          name: string
+          positions?: any
+          wallet_address?: string | null
+          nft_token_id?: string | null
+          token_id?: string | null
+          token_address?: string | null
+          contract_address?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: number
+          name?: string
+          positions?: any
+          wallet_address?: string | null
+          nft_token_id?: string | null
+          token_id?: string | null
+          token_address?: string | null
+          contract_address?: string | null
+          created_at?: string
+          updated_at?: string
+        }
       }
       // ... other table definitions
     }

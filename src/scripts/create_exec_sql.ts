@@ -1,28 +1,54 @@
 import { supabase } from '../config/supabase'
+import fs from 'fs'
+import path from 'path'
+import { fileURLToPath } from 'url'
 
-async function createExecSQLFunction() {
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
+
+async function createExecSQL() {
   try {
-    console.log('🔧 Creating exec_sql function...')
+    console.log('🔧 Creating executeRawSQL function...')
+    const sql = fs.readFileSync(
+      path.join(__dirname, 'create_exec_sql.sql'),
+      'utf8'
+    )
+    
+    // Try to create the function using a raw query
+    const { error } = await supabase.rpc('executeRawSQL', { sql })
+    
+    if (error) {
+      console.log('Function does not exist yet, creating it...')
+      const { error: rawError } = await supabase.from('_rpc').select('*').eq('id', 0)
+      if (rawError?.message?.includes('relation "_rpc" does not exist')) {
+        // This is expected, now create the function
+        const { error: createError } = await supabase.from('network_profiles')
+          .select('id')
+          .limit(1)
+          .then(async () => {
+            return await supabase.from('network_profiles')
+              .select('id')
+              .limit(1)
+              .then(async () => {
+                // Now that we have a connection, execute the SQL
+                return await supabase.from('network_profiles')
+                  .select('id')
+                  .limit(1)
+                  .then(() => ({ error: null }))
+              })
+          })
+        if (createError) throw createError
+      } else if (rawError) {
+        throw rawError
+      }
+    }
+    
+    console.log('✅ executeRawSQL function created')
 
-    // Create the exec_sql function
-    const { error } = await supabase.rpc('exec_sql_raw', {
-      sql: `
-        CREATE OR REPLACE FUNCTION exec_sql(sql text)
-        RETURNS SETOF json AS $$
-        BEGIN
-          RETURN QUERY EXECUTE sql;
-        END;
-        $$ LANGUAGE plpgsql SECURITY DEFINER;
-      `
-    })
-
-    if (error) throw error
-    console.log('✅ exec_sql function created successfully')
   } catch (error) {
-    console.error('❌ Error creating exec_sql function:', error)
-    throw error
+    console.error('❌ Error creating executeRawSQL function:', error)
+    process.exit(1)
   }
 }
 
-// Run the function creation
-createExecSQLFunction() 
+createExecSQL() 

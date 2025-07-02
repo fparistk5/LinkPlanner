@@ -143,4 +143,119 @@ DROP TRIGGER IF EXISTS enforce_links_isolation ON links;
 CREATE TRIGGER enforce_links_isolation
     BEFORE INSERT OR UPDATE ON links
     FOR EACH ROW
-    EXECUTE FUNCTION enforce_profile_isolation(); 
+    EXECUTE FUNCTION enforce_profile_isolation();
+
+-- Create a trigger function to ensure positions is always empty for new profiles
+CREATE OR REPLACE FUNCTION ensure_empty_positions()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- Always ensure positions is an empty JSONB object for new profiles
+    NEW.positions = '{}'::jsonb;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Create the trigger
+DROP TRIGGER IF EXISTS ensure_empty_positions_trigger ON network_profiles;
+CREATE TRIGGER ensure_empty_positions_trigger
+    BEFORE INSERT OR UPDATE OF positions ON network_profiles
+    FOR EACH ROW
+    EXECUTE FUNCTION ensure_empty_positions();
+
+-- Fix any existing profiles that might have inherited positions
+UPDATE network_profiles
+SET positions = '{}'::jsonb
+WHERE positions IS NULL OR positions::text != '{}';
+
+-- Verify the changes
+SELECT id, name, positions FROM network_profiles ORDER BY id;
+
+-- Create a function to initialize a new profile with empty data
+CREATE OR REPLACE FUNCTION initialize_new_profile()
+RETURNS TRIGGER AS $$
+BEGIN
+    -- Always ensure positions is an empty JSONB object for new profiles
+    NEW.positions = '{}'::jsonb;
+    
+    -- Clear any profile context to prevent data inheritance
+    PERFORM set_config('app.profile_id', '', true);
+    
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Create a function to handle profile data access
+CREATE OR REPLACE FUNCTION get_profile_data(profile_id INTEGER)
+RETURNS jsonb AS $$
+BEGIN
+    -- Set the profile context
+    PERFORM set_config('app.profile_id', profile_id::text, true);
+    
+    -- Return empty positions for new profiles
+    RETURN '{}'::jsonb;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Create the trigger for new profiles
+DROP TRIGGER IF EXISTS initialize_new_profile_trigger ON network_profiles;
+CREATE TRIGGER initialize_new_profile_trigger
+    BEFORE INSERT ON network_profiles
+    FOR EACH ROW
+    EXECUTE FUNCTION initialize_new_profile();
+
+-- Create RLS policy for network_profiles
+ALTER TABLE network_profiles ENABLE ROW LEVEL SECURITY;
+
+-- Drop existing policies if any
+DROP POLICY IF EXISTS network_profiles_isolation ON network_profiles;
+
+-- Create policy for network_profiles
+CREATE POLICY network_profiles_isolation ON network_profiles
+    FOR ALL
+    USING (
+        CASE 
+            WHEN current_setting('app.profile_id', true) = '' OR current_setting('app.profile_id', true) IS NULL THEN true
+            ELSE id = nullif(current_setting('app.profile_id', true), '')::INTEGER
+        END
+    );
+
+-- Fix any existing profiles that might have inherited positions
+UPDATE network_profiles
+SET positions = '{}'::jsonb
+WHERE positions IS NULL OR positions::text != '{}';
+
+-- Create function to ensure clean profile creation
+CREATE OR REPLACE FUNCTION create_clean_profile(
+    p_name TEXT,
+    p_wallet_address TEXT,
+    p_nft_token_id TEXT DEFAULT NULL
+) RETURNS network_profiles AS $$
+DECLARE
+    new_profile network_profiles;
+BEGIN
+    -- Clear any existing profile context
+    PERFORM set_config('app.profile_id', '', true);
+    
+    -- Create the profile with empty positions
+    INSERT INTO network_profiles (
+        name,
+        wallet_address,
+        nft_token_id,
+        positions
+    ) VALUES (
+        p_name,
+        p_wallet_address,
+        p_nft_token_id,
+        '{}'::jsonb
+    )
+    RETURNING * INTO new_profile;
+    
+    -- Set the context to the new profile
+    PERFORM set_config('app.profile_id', new_profile.id::text, true);
+    
+    RETURN new_profile;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Verify the changes
+SELECT id, name, positions FROM network_profiles ORDER BY id; 

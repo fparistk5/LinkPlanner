@@ -398,26 +398,6 @@ export function GraphView({ links, networkConnections, groups = [], notes = [], 
           node.fy = savedPos.y
         }
       })
-    } else {
-      // fallback to localStorage for backward compatibility
-      const savedData = localStorage.getItem(`graphPositions_${activeProfile}`)
-      if (savedData) {
-        try {
-          const profileData = JSON.parse(savedData)
-          const positions = profileData.positions
-          nodes.forEach(node => {
-            const savedPos = positions[node.id]
-            if (savedPos) {
-              node.x = savedPos.x
-              node.y = savedPos.y
-              node.fx = savedPos.x
-              node.fy = savedPos.y
-            }
-          })
-        } catch (error) {
-          console.error('Error restoring positions:', error)
-        }
-      }
     }
 
     // Create SVG
@@ -709,8 +689,6 @@ export function GraphView({ links, networkConnections, groups = [], notes = [], 
       .style('font-size', '10px')
       .style('font-weight', 'bold')
       .style('pointer-events', 'none')
-
-
 
     // Helper function to handle single-selection toggle behavior
     const handleSingleNodeSelection = (event: MouseEvent, d: GraphNode, isNote: boolean = false) => {

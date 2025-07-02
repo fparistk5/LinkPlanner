@@ -37,6 +37,7 @@ interface UseSupabaseDataReturn {
   deleteNetworkConnection: (id: string) => Promise<void>
   setLinks: React.Dispatch<React.SetStateAction<Link[]>>
   setGroups: React.Dispatch<React.SetStateAction<Group[]>>
+  setNetworkConnections: React.Dispatch<React.SetStateAction<NetworkConnection[]>>
   refresh: () => Promise<void>
   reload: () => Promise<void>
 }
@@ -58,7 +59,7 @@ export function useSupabaseData(profileId?: number | null): UseSupabaseDataRetur
       if (isInitialLoad) {
         setLoading(true)
       }
-      setError(null)
+        setError(null)
 
       try {
         let linksQuery = supabase
@@ -98,14 +99,14 @@ export function useSupabaseData(profileId?: number | null): UseSupabaseDataRetur
           display_order: group.display_order || 0
         })) || [])
         setNetworkConnections(connectionsResult.data || [])
-        
+
       } catch (err) {
         if (!isMounted) return
         console.error('Error fetching data:', err)
         setError(err instanceof Error ? err.message : 'An error occurred while fetching data')
       } finally {
         if (isMounted) {
-          setLoading(false)
+        setLoading(false)
           setIsInitialLoad(false)
         }
       }
@@ -292,9 +293,9 @@ export function useSupabaseData(profileId?: number | null): UseSupabaseDataRetur
     try {
       const { data, error } = await supabase
         .from('groups')
-        .insert([{
-          name,
-          color,
+        .insert([{ 
+          name, 
+          color, 
           note_group_id: note_group_id || null,
           parent_group_id: parent_group_id || null,
           profile_id: profileId,
@@ -304,7 +305,7 @@ export function useSupabaseData(profileId?: number | null): UseSupabaseDataRetur
         .single()
 
       if (error) throw error
-      return data
+        return data
     } catch (error) {
       // Revert optimistic update on error
       setGroups(prev => prev.filter(group => group.id !== newGroup.id))
@@ -433,6 +434,7 @@ export function useSupabaseData(profileId?: number | null): UseSupabaseDataRetur
     deleteNetworkConnection,
     setLinks,
     setGroups,
+    setNetworkConnections,
     refresh,
     reload: refresh
   }
