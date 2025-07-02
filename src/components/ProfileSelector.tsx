@@ -13,6 +13,7 @@ import {
   updateNetworkProfile,
   supabase
 } from '../config/supabase'
+import { NFT_CONTRACT } from '../config/wallet'
 
 type NetworkProfile = Database['public']['Tables']['network_profiles']['Row']
 
@@ -92,36 +93,53 @@ export function NFTProfileSelector({
     checkNFTProfileAbilities()
   }, [connectedWallet, hasNFTs, ownedNFTs, allProfiles])
 
-  // Handle profile creation for specific NFT
+  // Handle profile creation
   const handleCreateProfile = async () => {
-    if (!newProfileName.trim() || !connectedWallet || !hasNFTs || !selectedNFTForCreation) return
-
+    if (!newProfileName.trim() || !selectedNFTForCreation) return
     setCreateLoading(true)
+
     try {
-      const createdProfile = await createEmptyProfileForNFT(
-        connectedWallet, 
-        selectedNFTForCreation, 
-        newProfileName.trim()
-      )
-      
-      // Reset form state
+      // Get the NFT details
+      const selectedNFT = ownedNFTs.find(nft => nft.id === selectedNFTForCreation)
+      if (!selectedNFT) throw new Error('Selected NFT not found')
+
+      // Create profile with token details
+      const { data: newProfile, error } = await supabase
+        .from('network_profiles')
+        .insert([
+          {
+            name: newProfileName.trim(),
+            wallet_address: connectedWallet,
+            nft_token_id: selectedNFT.id,
+            token_id: selectedNFT.id,
+            token_address: connectedWallet,
+            contract_address: NFT_CONTRACT.address
+          }
+        ])
+        .select()
+        .single()
+
+      if (error) throw error
+
+      // Reset form
       setNewProfileName('')
-      setIsCreatingProfile(false)
       setSelectedNFTForCreation('')
+      setIsCreatingProfile(false)
       
-      // Notify parent component and wait for profiles to refresh
+      // Notify parent
       if (onProfileCreated) {
-        await onProfileCreated()
-        // Select the new profile after parent has refreshed the profile list
-        onProfileSelect(createdProfile.id)
+        onProfileCreated()
       }
-      
-      console.log('✅ New NFT profile created successfully:', {
-        profileName: createdProfile.name,
-        nftTokenId: selectedNFTForCreation
+
+      console.log('✅ Profile created successfully with token details:', {
+        profileId: newProfile.id,
+        name: newProfile.name,
+        tokenId: selectedNFT.id,
+        tokenAddress: connectedWallet,
+        contractAddress: NFT_CONTRACT.address
       })
     } catch (error) {
-      console.error('❌ Error creating NFT profile:', error)
+      console.error('❌ Error creating profile:', error)
       alert(`Failed to create profile: ${error instanceof Error ? error.message : 'Unknown error'}`)
     } finally {
       setCreateLoading(false)
@@ -155,12 +173,40 @@ export function NFTProfileSelector({
           alert(`Access denied: You must own Token ID ${profileToEdit.nft_token_id} to edit this profile`)
           return
         }
+
+        // If contract address matches, update token details
+        if (profileToEdit.contract_address === NFT_CONTRACT.address) {
+          const associatedNFT = ownedNFTs.find(nft => nft.id === profileToEdit.nft_token_id)
+          if (associatedNFT) {
+            const { error: updateError } = await supabase
+              .from('network_profiles')
+              .update({ 
+                name: editProfileName.trim(),
+                token_id: associatedNFT.id,
+                token_address: connectedWallet
+              })
+              .eq('id', profileId)
+
+            if (updateError) throw updateError
+            
+            console.log('✅ Profile updated with token details:', {
+              profileId,
+              tokenId: associatedNFT.id,
+              tokenAddress: connectedWallet
+            })
+            
+            setEditingProfile(null)
+            setEditProfileName('')
+            if (onProfileCreated) onProfileCreated()
+            return
+          }
+        }
       } else if (profileToEdit.wallet_address !== connectedWallet) {
-        // Profile doesn't belong to connected wallet
         alert('Access denied: You can only edit your own profiles')
         return
       }
 
+      // Regular profile update without token details
       const { error } = await supabase
         .from('network_profiles')
         .update({ name: editProfileName.trim() })
@@ -170,11 +216,7 @@ export function NFTProfileSelector({
 
       setEditingProfile(null)
       setEditProfileName('')
-      
-      // Notify parent to reload profiles
-      if (onProfileCreated) {
-        onProfileCreated()
-      }
+      if (onProfileCreated) onProfileCreated()
       
       console.log('✅ Profile updated successfully')
     } catch (error) {
@@ -337,7 +379,7 @@ export function NFTProfileSelector({
     }
   })
 
-  // Count total profiles including TechKeyz profile
+  // Count total profiles including TechKeyz
   const totalUserProfiles = userProfiles.filter(p => p.nft_token_id).length + (techKeyzProfile ? 1 : 0)
 
   // Don't render if no wallet connected or no NFTs
