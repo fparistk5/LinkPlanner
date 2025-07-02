@@ -15,7 +15,18 @@ import {
 } from '../config/supabase'
 import { NFT_CONTRACT } from '../config/wallet'
 
-type NetworkProfile = Database['public']['Tables']['network_profiles']['Row']
+type NetworkProfile = {
+  id: number
+  name: string
+  positions: any
+  wallet_address: string | null
+  nft_token_id: string | null
+  token_id: string | null
+  token_address: string | null
+  contract_address: string | null
+  created_at: string
+  updated_at: string
+}
 
 interface ProfileSelectorProps {
   connectedWallet: string | null
